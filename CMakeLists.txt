@@ -31,6 +31,8 @@ set(sources
         src/Utils.cpp
         src/OnFrame.cpp
         src/Force.cpp
+        src/Spell.cpp
+        src/Player.cpp
 
         ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 

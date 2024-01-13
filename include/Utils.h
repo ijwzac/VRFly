@@ -34,6 +34,15 @@ uint32_t GetFullFormID_ESL(const uint8_t modIndex, const uint16_t esl_index, uin
 RE::SpellItem* GetTimeSlowSpell_SpeelWheel();
 RE::SpellItem* GetTimeSlowSpell_Mine();
 
+RE::SpellItem* GetMySpell(RE::FormID partFormID);
+RE::SpellItem* GetLiftSpell();
+RE::SpellItem* GetXYSpell();
+RE::SpellItem* GetXYZSpell();
+
+RE::TESGlobal* GetMyGlobal(RE::FormID partFormID);
+RE::TESGlobal* GetTriggerL();
+RE::TESGlobal* GetTriggerR();
+
 class twoNodes {
 public:
     RE::NiNode* nodeL;
@@ -51,3 +60,5 @@ twoNodes HandleClawRaces(RE::Actor* actor, RE::NiPoint3& posWeaponBottomL, RE::N
 static RE::FormID werewolfRace = 0xCDD84;
 static RE::FormID raceWereBear = 0x1e17b;  // need to remove higher bits from race
 static RE::FormID vampLord = 0x0283a;  // need to remove higher bits
+
+RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player);

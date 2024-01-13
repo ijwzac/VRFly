@@ -1,5 +1,7 @@
 #include <chrono>
 
+using namespace SKSE;
+
 // Force is the basic data struct for speed control. Only contains 3 floats
 class Force {
 public:
@@ -85,16 +87,14 @@ public:
     std::chrono::steady_clock::time_point lastUpdate;
 
     // The default constructor starts from zero and linearly increase to stable
-    TrapezoidForce(float x, float y, float z, float durIncrease = 0, float durDecrease = 0)
+    TrapezoidForce(float x, float y, float z, float durIncrease, float durDecrease = 0)
         : current(Force()), stable(Force(x, y, z)), durDecrease(durDecrease) {
         remainingModDur = durIncrease;
         lastUpdate = std::chrono::high_resolution_clock::now();
     }
 
-    TrapezoidForce TrapezoidForceSkipIncrease(float x, float y, float z, float durDecrease = 0) {
-        auto f = TrapezoidForce(x, y, z, 0.0f, durDecrease);
-        f.current = Force(x, y, z);
-        return f;
+    TrapezoidForce(float x, float y, float z) : current(Force(x, y, z)), stable(Force(x, y, z)), durDecrease(0) {
+        lastUpdate = std::chrono::high_resolution_clock::now();
     }
 
     // Update that only considers the internal linear modification/decrease stage
@@ -116,6 +116,8 @@ public:
             // Thus, we need to make the passedTime very small
             passedTime = 0.01f;
         }
+        log::trace("PassedTime:{}, remainingMoDur:{}, remainingDecreaseDur:{}", passedTime, remainingModDur,
+                   remainingDecreaseDur);
         if (remainingModDur > 0) {
             // Mod stage
             Force speedIncrease = (stable - current) / remainingModDur;
@@ -129,7 +131,7 @@ public:
             //current.CapForce(stable);
         }
 
-        if (remainingDecreaseDur > 0) {
+        if (remainingDecreaseDur > 0 && startedDecrease) {
             // Decrease stage
             Force speedDecrease = (current) / remainingDecreaseDur;
             if (passedTime < remainingDecreaseDur) {
@@ -171,4 +173,23 @@ public:
             return false;
         }
     }
+};
+
+class AllForce {
+public:
+    //TODO: replace with a vector
+    TrapezoidForce* allCurrent;
+
+
+    AllForce() : allCurrent(nullptr) {}
+
+    void UpdateAll() { 
+        auto now = std::chrono::high_resolution_clock::now();
+
+        allCurrent->Update(now);
+    }
+
+    Force SumAll() { return allCurrent->current;
+    }
+
 };

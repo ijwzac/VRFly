@@ -3,6 +3,8 @@
 #include "OnFrame.h"
 #include "Settings.h"
 #include "OnMeleeHit.h"
+#include "Spell.h"
+#include "Player.h"
 #include <chrono>
 
 using namespace SKSE;
@@ -32,7 +34,6 @@ long long run_time_count = 1;
 int64_t count_after_pause;
 
 void ZacOnFrame::OnFrameUpdate() {
-
     if (isOurFnRunning) {
         log::warn("Our functions are running in parallel!!!"); // Not seen even when stress testing. Keep observing
     }
@@ -55,6 +56,7 @@ void ZacOnFrame::OnFrameUpdate() {
 
             if (!ui->GameIsPaused() && count_after_pause <= 0) {  // Not in menu, not in console, but can't detect in load
 
+                FlyMain();
 
                 iFrameCount++;
                 isPaused = false;
@@ -71,7 +73,7 @@ void ZacOnFrame::OnFrameUpdate() {
         if (highest_run_time < duration.count()) highest_run_time = duration.count();
         total_run_time += duration.count();
         auto average_run_time = total_run_time / run_time_count++;
-        if (run_time_count % 1000 == 1) {
+        if (run_time_count % 300 == 0) {
             log::info("Exe time of our fn:{} us. Highest:{}. Average:{}. Total:{}. Count:{}", duration.count(), highest_run_time,
                       average_run_time, total_run_time, run_time_count);
         }
@@ -82,6 +84,28 @@ void ZacOnFrame::OnFrameUpdate() {
     }
 
     ZacOnFrame::_OnFrame();  
+}
+
+void ZacOnFrame::FlyMain() {
+    auto& playerSt = PlayerState::GetSingleton();
+    auto player = playerSt.player;
+    if (!player || !player->Is3DLoaded()) {
+        log::warn("Player null or Player not 3D loaded. Shouldn't happen");
+        return;
+    }
+
+    // Update player's equipments
+    playerSt.UpdateEquip();
+
+    // PART I ======= Spell checking
+    SpellCheckMain();
+
+    // PART IV ======= Change player velocity
+    Force sumAll = allEffects.SumCurrentForce();
+    if (!allEffects.IsEmpty()) {
+        playerSt.ChangeVelocity(sumAll.x, sumAll.y, sumAll.z);
+    }
+    
 }
 
 void ZacOnFrame::TimeSlowEffect(RE::Actor* playerActor, int64_t slowFrame) { 

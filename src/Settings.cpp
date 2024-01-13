@@ -7,7 +7,7 @@ using namespace SKSE::log;
 bool bEnableWholeMod = true;
 bool bShowPlayerWeaponSegment = false;
 int64_t iFrameCount = 0;
-int iTraceLevel = 2;
+int iTraceLevel = 0;
 std::chrono::steady_clock::time_point last_time;
 
 
@@ -32,7 +32,7 @@ Settings* Settings::GetSingleton() {
 }
 
 void Settings::Load() {
-    constexpr auto path = L"Data/SKSE/Plugins/WeaponCollision.ini";
+    constexpr auto path = L"Data/SKSE/Plugins/VRFly.ini";
 
     CSimpleIniA ini;
     ini.SetUnicode();

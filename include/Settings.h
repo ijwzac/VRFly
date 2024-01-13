@@ -163,7 +163,7 @@ public:
         if (event->GetEventType() == RE::INPUT_EVENT_TYPE::kButton) {
             auto* buttonEvent = event->AsButtonEvent();
             auto dxScanCode = buttonEvent->GetIDCode();
-            logger::trace("Pressed key {}", dxScanCode);
+            //logger::trace("Pressed key {}", dxScanCode);
 
 
         }

@@ -208,6 +208,104 @@ RE::SpellItem* GetTimeSlowSpell_Mine() {
     return timeSlowSpell;
 }
 
+RE::SpellItem* GetMySpell(RE::FormID partFormID) {
+    RE::SpellItem* spell;
+
+    // First, try to find the spell using normal ESP
+    auto handler = RE::TESDataHandler::GetSingleton();
+    if (!handler) {
+        log::error("GetMySpell: failed to get TESDataHandler");
+        return nullptr;
+    }
+    auto espIndex = handler->GetLoadedModIndex("VRFly.esp");
+    if (!espIndex.has_value()) {
+        log::trace("GetMySpell: failed to get VRFly.esp");
+    } else {
+        RE::FormID fullFormID = GetFullFormID(espIndex.value(), partFormID);
+        spell = RE::TESForm::LookupByID<RE::SpellItem>(fullFormID);
+        if (spell) return spell;
+    }
+    
+    // Second, try to find the spell using ESL
+    // TODO: is this really OK?
+    for (uint16_t i = 0; i <= 0xFFF; i++) {
+        RE::FormID fullFormID = GetFullFormID_ESL(0xFE, i, partFormID);
+        spell = RE::TESForm::LookupByID<RE::SpellItem>(fullFormID);
+        if (spell) return spell;
+    }
+
+    log::error("GetMySpell: failed to get the spell {:x}", partFormID);
+    return nullptr;
+}
+
+RE::SpellItem* GetLiftSpell() { 
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x000D65);
+    }
+    return s; 
+}
+RE::SpellItem* GetXYSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x000D69);
+    }
+    return s;
+}
+RE::SpellItem* GetXYZSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x000D6B);
+    }
+    return s;
+}
+
+
+RE::TESGlobal* GetMyGlobal(RE::FormID partFormID) {
+    RE::TESGlobal* g;
+
+    // First, try to find the spell using normal ESP
+    auto handler = RE::TESDataHandler::GetSingleton();
+    if (!handler) {
+        log::error("GetMyGlobal: failed to get TESDataHandler");
+        return nullptr;
+    }
+    auto espIndex = handler->GetLoadedModIndex("VRFly.esp");
+    if (!espIndex.has_value()) {
+        log::trace("GetMyGlobal: failed to get VRFly.esp");
+    } else {
+        RE::FormID fullFormID = GetFullFormID(espIndex.value(), partFormID);
+        g = RE::TESForm::LookupByID<RE::TESGlobal>(fullFormID);
+        if (g) return g;
+    }
+
+    // Second, try to find the spell using ESL
+    // TODO: is this really OK?
+    for (uint16_t i = 0; i <= 0xFFF; i++) {
+        RE::FormID fullFormID = GetFullFormID_ESL(0xFE, i, partFormID);
+        g = RE::TESForm::LookupByID<RE::TESGlobal>(fullFormID);
+        if (g) return g;
+    }
+
+    log::error("GetMyGlobal: failed to get the global {:x}", partFormID);
+    return nullptr;
+}
+
+RE::TESGlobal* GetTriggerL() {
+    static RE::TESGlobal* g;
+    if (!g) {
+        g = GetMyGlobal(0x0012D4);
+    }
+    return g;
+}
+RE::TESGlobal* GetTriggerR() {
+    static RE::TESGlobal* g;
+    if (!g) {
+        g = GetMyGlobal(0x0012D5);
+    }
+    return g;
+}
+
 float generateRandomFloat(float min, float max) {
     // Create a random device and use it to seed the Mersenne Twister engine
     std::random_device rd;
@@ -335,5 +433,26 @@ void vibrateController(int hapticFrame, bool isLeft) {
         }
 
         log::trace("Finished calling papyrus");
+    }
+}
+
+RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player) {
+    const auto actorRoot = netimmerse_cast<RE::BSFadeNode*>(player->Get3D());
+    if (!actorRoot) {
+        log::warn("GetPlayerHandPos:Fail to find player");
+        return RE::NiPoint3();
+    }
+    const auto nodeNameL = "NPC L Hand [LHnd]"sv;
+    const auto nodeNameR = "NPC R Hand [RHnd]"sv;
+    const auto weaponL = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeNameL));
+    const auto weaponR = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeNameR));
+
+    if (isLeft && weaponL) {
+        return weaponL->world.translate - player->GetPosition();
+    } else if (!isLeft && weaponR) {
+        return weaponR->world.translate - player->GetPosition();
+    } else {
+        log::warn("GetPlayerHandPos:Fail to get player node for isLeft:{}", isLeft);
+        return RE::NiPoint3();
     }
 }

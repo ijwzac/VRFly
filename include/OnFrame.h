@@ -21,6 +21,7 @@ namespace ZacOnFrame {
 
     void InstallFrameHook();
     void OnFrameUpdate();
+    void FlyMain();
     bool FrameGetWeaponPos(RE::Actor*, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&, bool);
     bool FrameGetWeaponFixedPos(RE::Actor*, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&);
     bool IsNiPointZero(const RE::NiPoint3&);

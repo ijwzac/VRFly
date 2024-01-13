@@ -9,6 +9,7 @@ In fact, the code you see here is based on many other projects and I received he
 #include "Settings.h"
 #include "Utils.h"
 #include "OnFrame.h"
+#include "Spell.h"
 
 using namespace SKSE;
 using namespace SKSE::log;
@@ -16,6 +17,7 @@ using namespace SKSE::stl;
 
 ZacOnFrame::SpeedRing ZacOnFrame::speedBuf = ZacOnFrame::SpeedRing(90);
 ZacOnFrame::SlowTimeEffect ZacOnFrame::slowTimeData = ZacOnFrame::SlowTimeEffect(0);
+AllActiveFlyEffects allEffects = AllActiveFlyEffects(10);
 
 namespace {
     /**

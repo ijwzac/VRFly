@@ -1,6 +1,4 @@
 #include "Spell.h"
-#include "Utils.h"
-#include "Player.h"
 
 
 using namespace SKSE;
@@ -11,7 +9,9 @@ void SpellCheckMain() {
     auto spellLift = GetLiftSpell();
     auto spellXY = GetXYSpell();
     auto spellXYZ = GetXYZSpell();
-    if (!spellLift || !spellXY || !spellXYZ) {
+    auto spellEmit = GetEmitSpell();
+    auto spellEmitFire = GetEmitFireSpell();
+    if (!spellLift || !spellXY || !spellXYZ || !spellEmit) {
         log::error("Didn't find one of the spells! Return from FlyMain");
     }
 
@@ -19,6 +19,8 @@ void SpellCheckMain() {
     spellList.push_back(spellLift);
     spellList.push_back(spellXY);
     spellList.push_back(spellXYZ);
+    spellList.push_back(spellEmit);
+    spellList.push_back(spellEmitFire);
 
     for (bool isLeft : {false, true}) {
         RE::MagicItem* equip = isLeft ? playerSt.leftSpell : playerSt.rightSpell;
@@ -54,17 +56,22 @@ void SpellCheckMain() {
                             effect->xyzSpell = XYZMoveSpell(GetPlayerHandPos(isLeft, player), false, true);
                         } else if (spell == spellXYZ) {
                             effect->xyzSpell = XYZMoveSpell(GetPlayerHandPos(isLeft, player), true, true);
+                        } else if (spell == spellEmit || spell == spellEmitFire) {
+                            effect->emitSpell = EmitSpell(true, isLeft);
                         }
                         allEffects.Push(effect);
                     } else {
                         // Case 2: player is continuing casting the spell. Update the effect
                         float conf_LiftModTime = 0.3f;
-                        Force newStable = eff->xyzSpell.CalculateNewStable(GetPlayerHandPos(isLeft, player));
+                        Force newStable;
+                        if (spell == spellLift || spell == spellXY || spell == spellXYZ) {
+                            newStable = eff->xyzSpell.CalculateNewStable(GetPlayerHandPos(isLeft, player));
+                        } else if (spell == spellEmit || spell == spellEmitFire) {
+                            conf_LiftModTime = 1.3f;
+                            newStable = eff->emitSpell.CalculateNewStable();
+                        }
                         log::trace("About to Mod force to: {}, {}, {}", newStable.x, newStable.y, newStable.z);
                         eff->force->ModStable(newStable.x, newStable.y, newStable.z, conf_LiftModTime);
-                        //  TODO: correct this
-                        //eff->force->current = Force(newStable.x, newStable.y, newStable.z);
-                        //eff->force->stable = Force(newStable.x, newStable.y, newStable.z);
 
                         eff->Update();
                     }

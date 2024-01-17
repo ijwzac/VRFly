@@ -1,4 +1,5 @@
 #include <chrono>
+#include "Player.h"
 
 using namespace SKSE;
 
@@ -62,6 +63,9 @@ public:
         if (y < 0 && direction.y > 0) y = 0;
         if (z > 0 && direction.z < 0) z = 0;
         if (z < 0 && direction.z > 0) z = 0;
+    }
+
+    float Length() { return sqrt(x * x + y * y + z * z);
     }
 };
 

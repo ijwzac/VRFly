@@ -259,6 +259,22 @@ RE::SpellItem* GetXYZSpell() {
     }
     return s;
 }
+RE::SpellItem* GetEmitSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x00183A);
+    }
+    return s;
+}
+
+RE::SpellItem* GetEmitFireSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x001D9F);
+    }
+    return s;
+}
+// no fall damage perk 183C
 
 
 RE::TESGlobal* GetMyGlobal(RE::FormID partFormID) {
@@ -447,12 +463,34 @@ RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player) {
     const auto weaponL = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeNameL));
     const auto weaponR = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeNameR));
 
+    RE::NiPoint3 pos, result;
     if (isLeft && weaponL) {
-        return weaponL->world.translate - player->GetPosition();
+        pos = weaponL->world.translate - player->GetPosition();
     } else if (!isLeft && weaponR) {
-        return weaponR->world.translate - player->GetPosition();
+        pos = weaponR->world.translate - player->GetPosition();
     } else {
         log::warn("GetPlayerHandPos:Fail to get player node for isLeft:{}", isLeft);
         return RE::NiPoint3();
+    }
+
+    // remove the effect of player's facing angle
+    auto angle = player->GetAngleZ();
+    float pi = 3.141592f;
+    result.z = pos.z;
+    result.x = pos.x * cos(angle - pi) - pos.y * sin(angle - pi);
+    result.y = pos.x * sin(angle - pi) + pos.y * cos(angle - pi);
+    log::trace("Angle:{}", angle);
+
+    return result;
+}
+
+
+void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE::NiPoint3& posWeaponTop,
+                             RE::NiNode* bone) {
+    RE::NiPoint3 P_V = {0.0f, 0.0f, 0.0f};
+    if (iFrameCount % 3 == 0 && iFrameCount % 6 != 0) {
+        play_impact_2(actor, RE::TESForm::LookupByID<RE::BGSImpactData>(0x0004BB52), &P_V, &posWeaponTop, bone);
+    } else if (iFrameCount % 3 == 0 && iFrameCount % 6 == 0) {
+        play_impact_2(actor, RE::TESForm::LookupByID<RE::BGSImpactData>(0x0004BB52), &P_V, &posWeaponBottom, bone);
     }
 }

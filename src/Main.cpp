@@ -5,11 +5,7 @@ In fact, the code you see here is based on many other projects and I received he
 
 
 #include <stddef.h>
-#include "OnMeleeHit.h"
-#include "Settings.h"
-#include "Utils.h"
 #include "OnFrame.h"
-#include "Spell.h"
 
 using namespace SKSE;
 using namespace SKSE::log;

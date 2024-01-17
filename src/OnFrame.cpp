@@ -1,10 +1,5 @@
-#include "Utils.h"
 #include <RE/Skyrim.h>
 #include "OnFrame.h"
-#include "Settings.h"
-#include "OnMeleeHit.h"
-#include "Spell.h"
-#include "Player.h"
 #include <chrono>
 
 using namespace SKSE;
@@ -24,6 +19,22 @@ void ZacOnFrame::InstallFrameHook() {
     _OnFrame =
         trampoline.write_call<5>(OnFrameBase.address() + REL::Relocate(0x748, 0xc26, 0x7ee), ZacOnFrame::OnFrameUpdate);
 
+    REL::Relocation<std::uintptr_t> ProxyVTable{RE::VTABLE_bhkCharProxyController[1]};
+    // Now we need to overwrite function 0x07 in RE/B/bhkCharProxyController.h, which is:
+    // "void SetLinearVelocityImpl(const hkVector4& a_velocity) override;  // 07"
+    // Thanks to the author of PLANCK, this is discovered to be where proxy controller that controls the movement of player and dragons
+    // sets the velocity
+    _SetVelocity = ProxyVTable.write_vfunc(0x07, ZacOnFrame::HookSetVelocity);
+}
+
+void ZacOnFrame::HookSetVelocity(RE::bhkCharProxyController* controller, RE::hkVector4& a_velocity) {
+    auto& playerSt = PlayerState::GetSingleton();
+    if (playerSt.setVelocity) {
+        _SetVelocity(controller, playerSt.velocity);
+    } else {
+        _SetVelocity(controller, a_velocity);
+    }
+    // A strange thing: reading controller->GetCharacterProxy()->velocity crashes the game
 }
 
 bool isOurFnRunning = false;
@@ -97,13 +108,17 @@ void ZacOnFrame::FlyMain() {
     // Update player's equipments
     playerSt.UpdateEquip();
 
+    
     // PART I ======= Spell checking
     SpellCheckMain();
 
     // PART IV ======= Change player velocity
     Force sumAll = allEffects.SumCurrentForce();
     if (!allEffects.IsEmpty()) {
-        playerSt.ChangeVelocity(sumAll.x, sumAll.y, sumAll.z);
+        playerSt.SetVelocity(sumAll.x, sumAll.y, sumAll.z);
+        playerSt.CancelFall();
+    } else {
+        playerSt.StopSetVelocity();
     }
     
 }
@@ -205,19 +220,6 @@ void ZacOnFrame::StopTimeSlowEffect(RE::Actor* playerActor) {
 }
 
 
-void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE::NiPoint3& posWeaponTop,
-                             RE::NiNode* bone) {
-    RE::NiPoint3 P_V = {0.0f, 0.0f, 0.0f};
-    if (iFrameCount % 3 == 0 && iFrameCount % 6 != 0) {
-        play_impact_2(actor, RE::TESForm::LookupByID<RE::BGSImpactData>(0x0004BB52), &P_V, &posWeaponTop,
-                                  bone);
-    } else if (iFrameCount % 3 == 0 && iFrameCount % 6 == 0) {
-        play_impact_2(actor, RE::TESForm::LookupByID<RE::BGSImpactData>(0x0004BB52), &P_V, &posWeaponBottom,
-                                  bone);
-    }
-    
-    
-}
 
 
 // This function modifies the 4 NiPoint3 passed in. If failed to get the 3D of actor, it return false.
@@ -358,7 +360,7 @@ bool ZacOnFrame::FrameGetWeaponPos(RE::Actor* actor, RE::NiPoint3& posWeaponBott
     // 3. Races that use claws as weapon Werewolf or werebear or troll or bear or spriggan or hagraven
     twoNodes claws = HandleClawRaces(actor, posWeaponBottomL, posWeaponBottomR, posWeaponTopL, posWeaponTopR);
     if (!claws.isEmpty()) {
-        if ((!isPlayer && bDisplayEnemySegmentCheck) || (isPlayer && bShowPlayerWeaponSegment)) {
+        if ((!isPlayer && bDisplayEnemySegmentCheck) || (isPlayer && bShowEmitSpellDirection)) {
             debug_show_weapon_range(actor, posWeaponBottomR, posWeaponTopR, claws.nodeR);
             debug_show_weapon_range(actor, posWeaponBottomL, posWeaponTopL, claws.nodeL);
         }
@@ -414,7 +416,7 @@ bool ZacOnFrame::FrameGetWeaponPos(RE::Actor* actor, RE::NiPoint3& posWeaponBott
             posWeaponTopL = posWeaponBottomL + weaponDirectionL * reachL;
             posWeaponBottomL = posWeaponBottomL - weaponDirectionL * handleL;
 
-            if ((bShowPlayerWeaponSegment && isPlayer) ||
+            if ((bShowEmitSpellDirection && isPlayer) ||
                 (!isPlayer && bDisplayEnemySegmentCheck))
                 // 1234.0f is a magic number to prevent showing effects twice
                 debug_show_weapon_range(actor, posWeaponBottomL, posWeaponTopL, weaponL);
@@ -474,7 +476,7 @@ bool ZacOnFrame::FrameGetWeaponPos(RE::Actor* actor, RE::NiPoint3& posWeaponBott
             posWeaponTopR = posWeaponBottomR + weaponDirectionR * reachR;
             posWeaponBottomR = posWeaponBottomR - weaponDirectionR * handleR;
 
-            if ((bShowPlayerWeaponSegment && isPlayer) ||
+            if ((bShowEmitSpellDirection && isPlayer) ||
                 (!isPlayer && bDisplayEnemySegmentCheck)) {
                 debug_show_weapon_range(actor, posWeaponBottomR, posWeaponTopR, weaponR);
             }
@@ -553,6 +555,6 @@ void ZacOnFrame::FillShieldCenterNormal(RE::Actor* actor, RE::NiPoint3& shieldCe
 
         auto pointOutShield = shieldNormal * 30.5f + shieldCenter;
 
-        if (bShowPlayerWeaponSegment) debug_show_weapon_range(actor, shieldCenter, pointOutShield, weaponNodeL);
+        if (bShowEmitSpellDirection) debug_show_weapon_range(actor, shieldCenter, pointOutShield, weaponNodeL);
     }
 }

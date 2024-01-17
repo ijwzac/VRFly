@@ -9,8 +9,8 @@
 #pragma once
 
 #include <RE/Skyrim.h>
-#include "Settings.h"
 #include "OnMeleeHit.h"
+#include "Spell.h"
 
 using namespace SKSE;
 using namespace SKSE::log;
@@ -21,6 +21,7 @@ namespace ZacOnFrame {
 
     void InstallFrameHook();
     void OnFrameUpdate();
+    void HookSetVelocity(RE::bhkCharProxyController* controller, RE::hkVector4& a_velocity);
     void FlyMain();
     bool FrameGetWeaponPos(RE::Actor*, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&, bool);
     bool FrameGetWeaponFixedPos(RE::Actor*, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&);
@@ -34,6 +35,8 @@ namespace ZacOnFrame {
     // Stores the original OnFrame function, and call it no matter what later, so we don't break game's functionality
     static REL::Relocation<decltype(OnFrameUpdate)> _OnFrame;
 
+    static REL::Relocation<decltype(HookSetVelocity)> _SetVelocity;
+
         //// For several frames, change the angle of enemy, creating hit juice
         //void ChangeAngle() { 
         //    if (!enemy) return;
@@ -46,46 +49,6 @@ namespace ZacOnFrame {
         //        angleSetCount++;
         //    }
         //}
-
-        //// For several frames, change the velocity of enemy, to push them away
-        //void ChangeVelocity() {
-        //    if (!enemy) return;
-        //    float x = hkv.quad.m128_f32[0];
-        //    float y = hkv.quad.m128_f32[1];
-        //    log::trace("Entering ChangeVelocity of enemy, hkv.x:{}, hkv.y:{}", x,
-        //               y);
-        //    /*if (sqrt(x * x + y * y) < 10.0f) {
-        //        return;
-        //    }*/
-
-        //    // If enemy is already far enough or this function is about to get no more call, set hkv to zero so they won't be pushed farther
-        //    auto dist = enemy->GetPosition().GetDistance(
-        //        enemyOriPos); 
-        //    if (dist > fEnemyPushMaxDist || dist > pushEnemyMaxDist ||
-        //        (iFrameCount - iFrameCollision == collisionIgnoreDur - 3)) { 
-        //        hkv = hkv * 0.0f;
-        //        if (enemy && enemy->GetCharController()) {
-        //            RE::hkVector4 tmp;
-        //            enemy->GetCharController()->GetLinearVelocityImpl(tmp);
-        //            tmp = tmp * 0.0f;  // reset speed
-        //            enemy->GetCharController()->SetLinearVelocityImpl(tmp);
-        //        }
-        //        return;
-        //    }
-
-        //    if (enemy && enemy->GetCharController()) {
-        //        log::trace("About to change enemy speed, hkv length:{}", hkv.SqrLength3());
-        //        RE::hkVector4 tmp;
-        //        enemy->GetCharController()->GetLinearVelocityImpl(tmp);
-        //        tmp = tmp + hkv; // new speed considers old speed
-        //        //tmp = hkv;  // new speed doesn't consider old speed
-        //        enemy->GetCharController()->SetLinearVelocityImpl(tmp);
-        //    }
-
-        //    
-        //    return;
-        //}
-
 
     class WeaponPos { // this class is just used to store player's weapon pos and calculate speed
     public:

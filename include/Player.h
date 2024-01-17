@@ -1,4 +1,5 @@
-//#include "Spell.h"
+#include "Utils.h"
+#include "Settings.h"
 
 using namespace SKSE;
 
@@ -11,7 +12,10 @@ public:
     RE::TESObjectWEAP* rightWeap;
     RE::MagicItem* rightSpell;
 
-    PlayerState() : player(nullptr){}
+    bool setVelocity;
+    RE::hkVector4 velocity;
+
+    PlayerState() : player(nullptr), setVelocity(false){}
 
     static PlayerState& GetSingleton() {
         static PlayerState singleton;
@@ -58,11 +62,23 @@ public:
         }
     }
 
-    void ChangeVelocity(float x, float y, float z) {
-        if (player->GetCharController()) {
-            RE::hkVector4 tmp = RE::hkVector4(x, y, z, 0.0f);
-            log::trace("About to set player velocity to: {}, {}, {}", x, y, z);
-            player->GetCharController()->SetLinearVelocityImpl(tmp);
+    void SetVelocity(float x, float y, float z) {
+        velocity = RE::hkVector4(x, y, z, 0.0f);
+        setVelocity = true;
+
+        //if (player->GetCharController()) {
+        //    log::trace("About to set player velocity to: {}, {}, {}", x, y, z);
+        //    player->GetCharController()->SetLinearVelocityImpl(velocity);
+        //}
+    }
+
+    void StopSetVelocity() { setVelocity = false;
+    }
+
+    void CancelFall() {
+         if (player->GetCharController()) {
+            player->GetCharController()->fallStartHeight = 0.0f;
+            player->GetCharController()->fallTime = 0.0f;
         }
     }
 };

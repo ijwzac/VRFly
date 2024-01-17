@@ -38,6 +38,8 @@ RE::SpellItem* GetMySpell(RE::FormID partFormID);
 RE::SpellItem* GetLiftSpell();
 RE::SpellItem* GetXYSpell();
 RE::SpellItem* GetXYZSpell();
+RE::SpellItem* GetEmitSpell();
+RE::SpellItem* GetEmitFireSpell();
 
 RE::TESGlobal* GetMyGlobal(RE::FormID partFormID);
 RE::TESGlobal* GetTriggerL();
@@ -62,3 +64,6 @@ static RE::FormID raceWereBear = 0x1e17b;  // need to remove higher bits from ra
 static RE::FormID vampLord = 0x0283a;  // need to remove higher bits
 
 RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player);
+
+void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE::NiPoint3& posWeaponTop,
+                             RE::NiNode* bone);

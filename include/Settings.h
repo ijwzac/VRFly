@@ -20,7 +20,7 @@ extern int iHapticLengthMicroSec;
 
 // Settings for internal usage. Don't change unless you understand the code
 extern int iTraceLevel;           // Turn on the trace
-extern bool bShowPlayerWeaponSegment; // For debug. This shows the weapon range in this mod. May hurt your eyes
+extern bool bShowEmitSpellDirection;  // For debug. This shows the emit spell direction in this mod. May hurt your eyes
 
 extern float fMagicNum1;
 extern float fMagicNum2;
@@ -78,6 +78,11 @@ public:
     struct Feedback {
         void Load(CSimpleIniA& a_ini);
     } sFeedback;
+
+    
+    struct Technique {
+        void Load(CSimpleIniA& a_ini);
+    } sTechnique;
 
 private:
     Settings() = default;

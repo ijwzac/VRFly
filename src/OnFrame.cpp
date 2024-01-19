@@ -108,13 +108,22 @@ void ZacOnFrame::FlyMain() {
     // Update player's equipments
     playerSt.UpdateEquip();
 
+    // Update player's grounded status
+    playerSt.isInMidAir = player->IsInMidair();
+
+    // Update player's hand position to speedBuf
+    playerSt.UpdateSpeedBuf();
+
     
     // PART I ======= Spell checking
     SpellCheckMain();
 
+    // PART II ====== Dragon wings checking
+    WingsCheckMain();
+
     // PART IV ======= Change player velocity
-    Force sumAll = allEffects.SumCurrentForce();
-    if (!allEffects.IsEmpty()) {
+    Velo sumAll = allEffects.SumCurrentVelo();
+    if (!allEffects.IsForceEffectEmpty() || !allEffects.IsVeloEffectEmpty()) {
         playerSt.SetVelocity(sumAll.x, sumAll.y, sumAll.z);
         playerSt.CancelFall();
     } else {

@@ -11,9 +11,8 @@ using namespace SKSE;
 using namespace SKSE::log;
 using namespace SKSE::stl;
 
-ZacOnFrame::SpeedRing ZacOnFrame::speedBuf = ZacOnFrame::SpeedRing(90);
 ZacOnFrame::SlowTimeEffect ZacOnFrame::slowTimeData = ZacOnFrame::SlowTimeEffect(0);
-AllActiveFlyEffects allEffects = AllActiveFlyEffects(10);
+AllFlyEffects allEffects = AllFlyEffects(20);
 
 namespace {
     /**

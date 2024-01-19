@@ -2,7 +2,7 @@
 
 using namespace SKSE;
 
-// XYZMoveSpell can give player force based on player's hand position
+// XYZMoveSpell can give player velo based on player's hand position
 class XYZMoveSpell {
 public:
     bool valid;
@@ -10,7 +10,9 @@ public:
     bool considerVertical;
     bool considerHorizontal;
 
-    float maxZ = 1.8f;
+    // parameters
+    float modTime = 0.0f;
+    float maxZ = 2.7f;
     float maxLength = 8.0f;
 
     XYZMoveSpell(RE::NiPoint3 oriPos, bool considerVertical, bool considerHorizontal)
@@ -23,13 +25,13 @@ public:
           considerHorizontal(false),
           valid(false) {}
 
-    Force CalculateNewStable(RE::NiPoint3 newPos) {
+    Velo CalculateNewStable(RE::NiPoint3 newPos) {
         float conf_verticalMult = 0.25f;
         float conf_horizontalMult = 0.25f;
         auto diff = newPos - oriPos;
         log::trace("newPos: {}, {}, {}", newPos.x, newPos.y, newPos.z);
         log::trace("oriPos: {}, {}, {}", oriPos.x, oriPos.y, oriPos.z);
-        Force result = Force();
+        Velo result = Velo();
         if (considerVertical) {
             result.z = diff.z * conf_verticalMult;
             if (result.z > maxZ) result.z = maxZ;
@@ -55,6 +57,9 @@ class EmitSpell {
 public:
     bool valid;
     bool isLeft;
+
+    // parameters
+    float modTime = 0.0f;
     float maxZ = 1.7f;
     float length = 3.3f;
 
@@ -63,8 +68,8 @@ public:
 
     EmitSpell() : valid(false) {}
 
-    Force CalculateNewStable() {
-        Force result = Force();
+    Velo CalculateNewStable() {
+        Velo result = Velo();
 
         auto& playerSt = PlayerState::GetSingleton();
         auto player = playerSt.player;
@@ -109,64 +114,202 @@ public:
     }
 };
 
-class ActiveFlyEffect {
+// EmitForceSpell can give player force based on player's hand angle
+class EmitForceSpell {
 public:
-    enum class Slot {
-        kLeft = 0,
-        kRight = 1<< 0,
-        kGrip = 1<< 1,
-    };
+    bool valid;
+    bool isLeft;
+
+    // parameters
+    float maxZ = 0.6f;
+    float length = 1.2f;
+
+    EmitForceSpell(bool isValid, bool isLeft) 
+        : valid(isValid), isLeft(isLeft) {}
+
+    EmitForceSpell() : valid(false) {}
+
+    Force CalculateNewForce() {
+        Force result = Force();
+
+        auto& playerSt = PlayerState::GetSingleton();
+        auto player = playerSt.player;
+
+        const auto actorRoot = netimmerse_cast<RE::BSFadeNode*>(player->Get3D());
+        if (!actorRoot) {
+            log::warn("Fail to get actorRoot:{}", player->GetBaseObject()->GetName());
+            return result;
+        }
+
+        const auto nodeName = isLeft ? "NPC L Hand [LHnd]"sv : "NPC R Hand [RHnd]"sv;
+        auto weaponNode = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeName));
+
+        const auto nodeBaseStr = "NPC Pelvis [Pelv]"sv;  // base of player
+        const auto baseNode = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeBaseStr));
+
+        if (weaponNode) {
+            auto handPos = weaponNode->world.translate;
+
+            auto rotation = weaponNode->world.rotate;
+            // rotation = adjustNodeRotation(baseNode, rotation, RE::NiPoint3(fMagicNum1, fMagicNum2, fMagicNum3),
+            // false);
+            rotation = adjustNodeRotation(baseNode, rotation, RE::NiPoint3(.0f, 1.0f, .0f), false);
+
+            auto verticleVector = RE::NiPoint3{rotation.entry[0][1], rotation.entry[1][1], rotation.entry[2][1]};
+
+            auto pointOutHand = verticleVector * 30.5f + handPos;
+
+            if (bShowEmitSpellDirection) debug_show_weapon_range(player, handPos, pointOutHand, weaponNode);
+
+            result = verticleVector * length;
+            if (result.z > maxZ) result.z = maxZ;
+
+        } else {
+            log::warn("Fail to get player hand node ");
+        }
+
+        return result;
+    }
+};
+
+// WingSpell can give player force based on player's hand movement. It also changes the behavior of drag and lift
+class WingSpell {
+public:
+    bool valid;
+
+    // parameters
+    float conf_slapStrength = 4.0f; // TODO: this is a little high, while gravity is too low
+
+    WingSpell(bool isValid) : valid(isValid) {}
+
+    WingSpell() : valid(false) {}
+
+    Force CalculateSlapForce(RE::NiPoint3& speedL, RE::NiPoint3& speedR) {
+        auto& playerSt = PlayerState::GetSingleton();
+        Force result = Force();
+
+        result = result - speedL * conf_slapStrength;
+        result = result - speedR * conf_slapStrength;
+        
+        return result;
+    }
+};
+
+enum class Slot {
+    kLeft = 0,
+    kRight = 1 << 0,
+    kHead = 1 << 1,
+};
+
+class ForceEffect {
+public:
 
     Slot slot;
-    TrapezoidForce* force;
+    Force force;
     std::chrono::steady_clock::time_point lastUpdate;
 
-    // Only one is filled among the following 2 fields
     RE::SpellItem* spell;
-    XYZMoveSpell xyzSpell;
-    EmitSpell emitSpell;
+
+    // Only one below is valid
+    EmitForceSpell emitForceSpell;
+    WingSpell wingSpell;
+
+    ForceEffect(Slot slot, Force force, RE::SpellItem* spell) : slot(slot), force(force), spell(spell) { 
+        lastUpdate = std::chrono::high_resolution_clock::now();
+
+    }
+
+    void Update() {
+        lastUpdate = std::chrono::high_resolution_clock::now();
+    }
+};
+
+// VeloEffect is created by a spell or weapon, and it adds a Velo on player. 
+// It's responsible for the update of the Velo, but whoever created VeloEffect should be responsible for the deletion of Velo
+class VeloEffect {
+public:
+
+    Slot slot;
+    TrapezoidVelo* velo;
+    std::chrono::steady_clock::time_point lastUpdate;
+
+    // Only one is not null among the following 2 fields
+    RE::SpellItem* spell;
     RE::TESObjectWEAP* weapon;
 
-    ActiveFlyEffect(Slot slot, TrapezoidForce* force, RE::SpellItem* spell, RE::TESObjectWEAP* weapon)
-        : slot(slot), force(force), spell(spell), weapon(weapon), xyzSpell(XYZMoveSpell()), emitSpell(EmitSpell()) {
+    // If spell is not null, only one of the following 2 fields below is valid
+    XYZMoveSpell xyzSpell;
+    EmitSpell emitSpell;
+
+    VeloEffect(Slot slot, TrapezoidVelo* velo, RE::SpellItem* spell, RE::TESObjectWEAP* weapon)
+        : slot(slot), velo(velo), spell(spell), weapon(weapon), xyzSpell(XYZMoveSpell()), emitSpell(EmitSpell()) {
         lastUpdate = std::chrono::high_resolution_clock::now();
     }
 
     void Update() { 
         lastUpdate = std::chrono::high_resolution_clock::now();
-        force->Update(lastUpdate);
+        velo->Update(lastUpdate);
     }
 };
 
-class AllActiveFlyEffects {
+// CalculateDragSimple assumes that Drag is always in the opposite direction of velocity, 
+Force CalculateDragSimple(RE::NiPoint3& currentVelo);
+
+class AllFlyEffects {
 public:
-    std::vector<ActiveFlyEffect*> buffer;
-    std::size_t capacity;
-    std::size_t index;
+    std::vector<VeloEffect*> bufferV;
+    std::size_t capacityV;
+    std::size_t indexV;
 
-    Force gravity = Force(0.0f, 0.0f, -1.9f);
+    std::vector<ForceEffect*> bufferF;
+    std::size_t capacityF;
+    std::size_t indexF;
+    RE::NiPoint3 accumVelocity;
 
-    AllActiveFlyEffects(std::size_t cap) : buffer(cap), capacity(cap), index(0) {}
+    std::chrono::steady_clock::time_point lastUpdate;
 
-    ~AllActiveFlyEffects() { 
+    Velo gravityV = Velo(0.0f, 0.0f, -1.9f);
+
+    Force gravityF = Force(0.0f, 0.0f, -0.7f);
+
+    AllFlyEffects(std::size_t cap) : bufferV(cap), capacityV(cap), indexV(0), bufferF(cap), capacityF(cap), indexF(0) {
+        lastUpdate = std::chrono::high_resolution_clock::now();
+    }
+
+    ~AllFlyEffects() { 
         Clear();
     }
 
     void Clear() { 
-        for (auto e : buffer) {
+        for (auto e : bufferV) {
             if (e) delete e;
         }
-        buffer.clear();
-        index = 0;
+        bufferV.clear();
+        indexV = 0;
+
+        
+        for (auto e : bufferF) {
+            if (e) delete e;
+        }
+        bufferF.clear();
+        indexF = 0;
+
+        accumVelocity = RE::NiPoint3();
     }
 
-    void Push(ActiveFlyEffect* e) {
-        buffer[index] = e;
-        index = (index + 1) % capacity;
+    void Push(VeloEffect* e) {
+        bufferV[indexV] = e;
+        indexV = (indexV + 1) % capacityV;
     }
 
-    ActiveFlyEffect* FindEffect(ActiveFlyEffect::Slot slot, RE::SpellItem* spell, RE::TESObjectWEAP* weapon) {
-        for (auto e : buffer) {
+    
+    void Push(ForceEffect* e) {
+        bufferF[indexF] = e;
+        indexF = (indexF + 1) % capacityF;
+    }
+
+    VeloEffect* FindVeloEffect(Slot slot, RE::SpellItem* spell, RE::TESObjectWEAP* weapon) {
+        for (auto e : bufferV) {
             if (e) {
                 if (e->slot == slot && e->spell == spell && e->weapon == weapon) {
                     return e;
@@ -176,34 +319,119 @@ public:
         return nullptr;
     }
 
-    void DeleteEffect(ActiveFlyEffect* e) { 
-        for (std::size_t i = 0; i < capacity; i++) {
-            if (buffer[i] == e) {
+    ForceEffect* FindForceEffect(Slot slot, RE::SpellItem* spell) {
+        for (auto e : bufferF) {
+            if (e) {
+                if (e->spell == spell && e->slot == slot) {
+                    return e;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    void DeleteEffect(VeloEffect* e) { 
+        for (std::size_t i = 0; i < capacityV; i++) {
+            if (bufferV[i] == e) {
                 delete e;
-                buffer[i] = nullptr;
+                bufferV[i] = nullptr;
                 break;
             }
         }
     }
 
-    // Note that we don't update all effects in buffer, so we can know which effect hasn't been updated and should be deleted
-
-    Force SumCurrentForce() { 
-        Force result = Force();
-        log::trace("In SumCurrentForce");
-        for (auto e : buffer) {
-            if (e) {
-                auto f = e->force->current;
-                log::trace("Found a valid e with current: {}, {}, {}", f.x, f.y, f.z );
-                result = result + e->force->current;
+    void DeleteEffect(ForceEffect* e) {
+        for (std::size_t i = 0; i < capacityF; i++) {
+            if (bufferF[i] == e) {
+                delete e;
+                bufferF[i] = nullptr;
+                break;
             }
         }
-        result = result + gravity;
+    }
+
+    // Note that we don't update all effects in bufferV, so we can know which effect hasn't been updated and should be deleted
+
+    Velo SumCurrentVelo() {
+        Velo result = Velo();
+
+        // Calculate all VeloEffect
+        bool noVeloEffect = true;
+        for (auto e : bufferV) {
+            if (e) {
+                noVeloEffect = false;
+                auto f = e->velo->current;
+                log::trace("Found a valid VeloEffect with current Velo: {}, {}, {}", f.x, f.y, f.z );
+                result = result + e->velo->current;
+            }
+        }
+        if (!noVeloEffect && IsForceEffectEmpty()) {
+            result = result + gravityV;
+            log::trace("Applying gravityVelo");
+        }
+
+        // Calculate all ForceEffect and add the accumulated velocity over the duration since last update
+        auto now = std::chrono::high_resolution_clock::now();
+        float passedTime =
+            ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count()) / 1000.0f;
+        bool noForceEffect = true;
+        for (auto e : bufferF) {
+            if (e) {
+                noForceEffect = false;
+                auto f = e->force;
+                log::trace("Found a valid ForceEffect with Force: {}, {}, {}", f.x, f.y, f.z);
+                accumVelocity = accumVelocity + f * passedTime;
+            }
+        }
+
+
+        
+        auto playerSt = PlayerState::GetSingleton();
+        if (playerSt.player) {
+            // If not on ground, and there is at least one Force, apply gravity and drag to player as force
+            if (!noForceEffect && playerSt.player->IsInMidair()) {
+                accumVelocity = accumVelocity + gravityF * passedTime;
+
+                auto currentVelo = result.AsNiPoint3() + accumVelocity;
+                auto dragSimple = CalculateDragSimple(currentVelo);
+                log::trace("Current velo:{}, {}, {}", currentVelo.x, currentVelo.y, currentVelo.z);
+                accumVelocity = accumVelocity + dragSimple * passedTime;
+                log::trace("Applying gravityForce, Drag:{}, {}, {}", dragSimple.x, dragSimple.y, dragSimple.z);
+            }
+
+            // If on ground, reduce accumVelocity greatly, so player don't slipper on ground
+            if (!playerSt.player->IsInMidair()) {
+                if (accumVelocity.Length() < 0.05f && accumVelocity.z <= 0.0f) {
+                    // static friction
+                    accumVelocity = RE::NiPoint3(0.0f, 0.0f, 0.0f);
+                } else if (accumVelocity.Length() < 0.5f && accumVelocity.z <= 0.0f) {
+                    // static friction
+                    accumVelocity = accumVelocity * (1.0f - passedTime / 0.05f);
+                } else {
+                    // friction
+                    accumVelocity = accumVelocity * (1.0f - passedTime / 0.5f);
+                }
+            }
+        }
+
+        log::trace("Accumulated velocity itself: {}, {}, {}", accumVelocity.x, accumVelocity.y,
+                   accumVelocity.z);
+        result = result + accumVelocity;
+        lastUpdate = now;
         return result;
     }
 
-    bool IsEmpty() {
-        for (auto e : buffer) {
+    bool IsVeloEffectEmpty() {
+        for (auto e : bufferV) {
+            if (e) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool IsForceEffectEmpty() {
+        for (auto e : bufferF) {
             if (e) {
                 return false;
             }
@@ -215,12 +443,22 @@ public:
     void DeleteIdleEffects() {
         auto now = std::chrono::high_resolution_clock::now();
         float conf_IdleDeadline = 0.5f;
-        for (auto e : buffer) {
+        for (auto e : bufferV) {
             if (e) {
                 float passedTime =
                     ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - e->lastUpdate).count()) / 1000.0f;
                 if (passedTime > conf_IdleDeadline) {
-                    delete e->force;
+                    delete e->velo;
+                    DeleteEffect(e);
+                }
+            }
+        }
+        for (auto e : bufferF) {
+            if (e) {
+                float passedTime =
+                    ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - e->lastUpdate).count()) /
+                    1000.0f;
+                if (passedTime > conf_IdleDeadline) {
                     DeleteEffect(e);
                 }
             }
@@ -228,7 +466,7 @@ public:
     }
 };
 
-extern AllActiveFlyEffects allEffects;
+extern AllFlyEffects allEffects;
 
 void SpellCheckMain();
 

@@ -58,56 +58,56 @@ namespace ZacOnFrame {
         WeaponPos(RE::NiPoint3 b, RE::NiPoint3 t) : bottom(b), top(t) {}
     };
 
-    class SpeedRing {
-    public:
-        std::vector<WeaponPos> bufferL;
-        std::vector<WeaponPos> bufferR;
-        std::size_t capacity; // how many latest frames are stored
-        std::size_t indexCurrentL;
-        std::size_t indexCurrentR;
-        SpeedRing(std::size_t cap) : bufferL(cap), bufferR(cap), capacity(cap), indexCurrentR(0), indexCurrentL(0) {}
-        
-        void Clear() {
+    //class SpeedRing {
+    //public:
+    //    std::vector<WeaponPos> bufferL;
+    //    std::vector<WeaponPos> bufferR;
+    //    std::size_t capacity; // how many latest frames are stored
+    //    std::size_t indexCurrentL;
+    //    std::size_t indexCurrentR;
+    //    SpeedRing(std::size_t cap) : bufferL(cap), bufferR(cap), capacity(cap), indexCurrentR(0), indexCurrentL(0) {}
+    //    
+    //    void Clear() {
 
-        }
+    //    }
 
-        void Push(WeaponPos p, bool isLeft) { 
-            if (isLeft) {
-                bufferL[indexCurrentL] = p;
-                indexCurrentL = (indexCurrentL + 1) % capacity;
-            } else {
-                bufferR[indexCurrentR] = p;
-                indexCurrentR = (indexCurrentR + 1) % capacity;
-            }
-        }
+    //    void Push(WeaponPos p, bool isLeft) { 
+    //        if (isLeft) {
+    //            bufferL[indexCurrentL] = p;
+    //            indexCurrentL = (indexCurrentL + 1) % capacity;
+    //        } else {
+    //            bufferR[indexCurrentR] = p;
+    //            indexCurrentR = (indexCurrentR + 1) % capacity;
+    //        }
+    //    }
 
-        // Thanks ChatGPT for generating this function
-        RE::NiPoint3 GetVelocity(std::size_t N, bool isLeft) const {
-            if (N == 0 || N > capacity) {
-                // Return zero velocity or handle error
-                return RE::NiPoint3(0.0f, 0.0f, 0.0f);
-            }
+    //    // Thanks ChatGPT for generating this function
+    //    RE::NiPoint3 GetVelocity(std::size_t N, bool isLeft) const {
+    //        if (N == 0 || N > capacity) {
+    //            // Return zero velocity or handle error
+    //            return RE::NiPoint3(0.0f, 0.0f, 0.0f);
+    //        }
 
-            std::size_t currentIdx = isLeft ? indexCurrentL : indexCurrentR;
-            const std::vector<WeaponPos>& buffer = isLeft ? bufferL : bufferR;
+    //        std::size_t currentIdx = isLeft ? indexCurrentL : indexCurrentR;
+    //        const std::vector<WeaponPos>& buffer = isLeft ? bufferL : bufferR;
 
-            // Get the start and end positions
-            RE::NiPoint3 startPosBottom = buffer[(currentIdx - N + capacity) % capacity].bottom;
-            RE::NiPoint3 endPosBottom = buffer[(currentIdx - 1 + capacity) % capacity].bottom;
-            RE::NiPoint3 startPosTop = buffer[(currentIdx - N + capacity) % capacity].top;
-            RE::NiPoint3 endPosTop = buffer[(currentIdx - 1 + capacity) % capacity].top;
+    //        // Get the start and end positions
+    //        RE::NiPoint3 startPosBottom = buffer[(currentIdx - N + capacity) % capacity].bottom;
+    //        RE::NiPoint3 endPosBottom = buffer[(currentIdx - 1 + capacity) % capacity].bottom;
+    //        RE::NiPoint3 startPosTop = buffer[(currentIdx - N + capacity) % capacity].top;
+    //        RE::NiPoint3 endPosTop = buffer[(currentIdx - 1 + capacity) % capacity].top;
 
-            // Calculate velocities
-            RE::NiPoint3 velocityBottom = (endPosBottom - startPosBottom) / static_cast<float>(N);
-            RE::NiPoint3 velocityTop = (endPosTop - startPosTop) / static_cast<float>(N);
+    //        // Calculate velocities
+    //        RE::NiPoint3 velocityBottom = (endPosBottom - startPosBottom) / static_cast<float>(N);
+    //        RE::NiPoint3 velocityTop = (endPosTop - startPosTop) / static_cast<float>(N);
 
-            // Return the larger velocity based on magnitude
-            return (velocityBottom.Length() > velocityTop.Length()) ? velocityBottom : velocityTop;
-        }
+    //        // Return the larger velocity based on magnitude
+    //        return (velocityBottom.Length() > velocityTop.Length()) ? velocityBottom : velocityTop;
+    //    }
 
-    };
-    extern SpeedRing speedBuf; // positions of player's weapons, but the handle length is 0 and weapon length is a fixed number
-    extern SpeedRing weapPosBuf;  // positions of player's weapons
+    //};
+    //extern SpeedRing speedBuf; // positions of player's weapons, but the handle length is 0 and weapon length is a fixed number
+    //extern SpeedRing weapPosBuf;  // positions of player's weapons
 
     // Record information for timeslow spell
     class SlowTimeEffect {

@@ -262,7 +262,7 @@ RE::SpellItem* GetXYZSpell() {
 RE::SpellItem* GetEmitSpell() {
     static RE::SpellItem* s;
     if (!s) {
-        s = GetMySpell(0x00183A);
+        s = GetMySpell(0x001D9F);
     }
     return s;
 }
@@ -270,7 +270,23 @@ RE::SpellItem* GetEmitSpell() {
 RE::SpellItem* GetEmitFireSpell() {
     static RE::SpellItem* s;
     if (!s) {
-        s = GetMySpell(0x001D9F);
+        s = GetMySpell(0x00183A); 
+    }
+    return s;
+}
+
+RE::SpellItem* GetEmitForceSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x002305); 
+    }
+    return s;
+}
+
+RE::SpellItem* GetWingsFlagSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x0051D6);
     }
     return s;
 }
@@ -318,6 +334,21 @@ RE::TESGlobal* GetTriggerR() {
     static RE::TESGlobal* g;
     if (!g) {
         g = GetMyGlobal(0x0012D5);
+    }
+    return g;
+}
+
+RE::TESGlobal* GetGripL() {
+    static RE::TESGlobal* g;
+    if (!g) {
+        g = GetMyGlobal(0x0012D6);
+    }
+    return g;
+}
+RE::TESGlobal* GetGripR() {
+    static RE::TESGlobal* g;
+    if (!g) {
+        g = GetMyGlobal(0x0012D7);
     }
     return g;
 }

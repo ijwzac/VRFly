@@ -40,10 +40,14 @@ RE::SpellItem* GetXYSpell();
 RE::SpellItem* GetXYZSpell();
 RE::SpellItem* GetEmitSpell();
 RE::SpellItem* GetEmitFireSpell();
+RE::SpellItem* GetEmitForceSpell();
+RE::SpellItem* GetWingsFlagSpell();
 
 RE::TESGlobal* GetMyGlobal(RE::FormID partFormID);
 RE::TESGlobal* GetTriggerL();
 RE::TESGlobal* GetTriggerR();
+RE::TESGlobal* GetGripL();
+RE::TESGlobal* GetGripR();
 
 class twoNodes {
 public:

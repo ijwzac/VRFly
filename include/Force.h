@@ -3,41 +3,56 @@
 
 using namespace SKSE;
 
-// Force is the basic data struct for speed control. Only contains 3 floats
-class Force {
+class Force : public RE::NiPoint3 {
+public:
+    Force(const RE::NiPoint3& point) : RE::NiPoint3(point) {}
+    Force(float x, float y, float z) : RE::NiPoint3(x, y, z) {}
+    Force() {}
+};
+
+// Velo is the basic data struct for speed control. Only contains 3 floats
+class Velo {
 public:
     float x;
     float y;
     float z;
-    Force(float x, float y, float z) : x(x), y(y), z(z) {}
-    Force() : x(0), y(0), z(0) {}
+    Velo(float x, float y, float z) : x(x), y(y), z(z) {}
+    Velo() : x(0), y(0), z(0) {}
 
-    Force operator+(const Force& v1) {
-        Force result;
+    Velo operator+(const Velo& v1) {
+        Velo result;
         result.x = this->x + v1.x;
         result.y = this->y + v1.y;
         result.z = this->z + v1.z;
         return result;
     };
 
-    Force operator-(const Force& v1) {
-        Force result;
+    Velo operator+(const RE::NiPoint3& v1) {
+        Velo result;
+        result.x = this->x + v1.x;
+        result.y = this->y + v1.y;
+        result.z = this->z + v1.z;
+        return result;
+    };
+
+    Velo operator-(const Velo& v1) {
+        Velo result;
         result.x = this->x - v1.x;
         result.y = this->y - v1.y;
         result.z = this->z - v1.z;
         return result;
     };
 
-    Force operator*(const float v1) {
-        Force result;
+    Velo operator*(const float v1) {
+        Velo result;
         result.x = this->x * v1;
         result.y = this->y * v1;
         result.z = this->z * v1;
         return result;
     };
 
-    Force operator/(const float v1) {
-        Force result;
+    Velo operator/(const float v1) {
+        Velo result;
         result.x = this->x / v1;
         result.y = this->y / v1;
         result.z = this->z / v1;
@@ -45,8 +60,8 @@ public:
     };
 
     // Deprecated: probably not necessary, and also this doesn't work if the new stable has different direction
-    // CapForce makes sure self doesn't exceed cap. Requires cap to be at the same direction as self
-    void CapForce(Force cap) {
+    // CapVelo makes sure self doesn't exceed cap. Requires cap to be at the same direction as self
+    void CapVelo(Velo cap) {
         if (x > 0 && cap.x < x) x = cap.x;
         if (x < 0 && cap.x > x) x = cap.x;
         if (y > 0 && cap.y < y) y = cap.y;
@@ -56,7 +71,7 @@ public:
     }
 
     // PreventReverse makes sure each of self's x,y,z doesn't reverse direction
-    void PreventReverse(Force direction) {
+    void PreventReverse(Velo direction) {
         if (x > 0 && direction.x < 0) x = 0;
         if (x < 0 && direction.x > 0) x = 0;
         if (y > 0 && direction.y < 0) y = 0;
@@ -67,37 +82,40 @@ public:
 
     float Length() { return sqrt(x * x + y * y + z * z);
     }
+
+    RE::NiPoint3 AsNiPoint3() { return RE::NiPoint3(x, y, z);
+    }
 };
 
-// TrapezoidForce simulates a natural force. After created, it starts from zero and linearly increase to stable
-// If its stable force is modified, it will modify its current force gradually and linearly to reach stable
+// TrapezoidVelo simulates natural change of velocity that doesn't rely on Force. After created, it starts from zero and linearly increase to stable
+// If its stable velo is modified, it will modify its current velo gradually and linearly to reach stable
 // We expect that Decrease stage only happens once, and Mod stage or Stable stage can happen multiple times. See Update()
-class TrapezoidForce {
+class TrapezoidVelo {
 public:
 
-    enum class ForceStage {
+    enum class VeloStage {
         kIncrease = 0
     };
 
     // parameters
-    Force stable;
+    Velo stable;
     float durDecrease;
 
     // states
-    Force current;
+    Velo current;
     float remainingModDur; // only one of remainingModDur and remainingDecreaseDur can be positive
     float remainingDecreaseDur;
     bool startedDecrease;
     std::chrono::steady_clock::time_point lastUpdate;
 
     // The default constructor starts from zero and linearly increase to stable
-    TrapezoidForce(float x, float y, float z, float durIncrease, float durDecrease = 0)
-        : current(Force()), stable(Force(x, y, z)), durDecrease(durDecrease) {
+    TrapezoidVelo(float x, float y, float z, float durIncrease, float durDecrease = 0)
+        : current(Velo()), stable(Velo(x, y, z)), durDecrease(durDecrease) {
         remainingModDur = durIncrease;
         lastUpdate = std::chrono::high_resolution_clock::now();
     }
 
-    TrapezoidForce(float x, float y, float z) : current(Force(x, y, z)), stable(Force(x, y, z)), durDecrease(0) {
+    TrapezoidVelo(float x, float y, float z) : current(Velo(x, y, z)), stable(Velo(x, y, z)), durDecrease(0) {
         lastUpdate = std::chrono::high_resolution_clock::now();
     }
 
@@ -110,7 +128,7 @@ public:
         }
         if (remainingDecreaseDur < 0.001f && startedDecrease) {
             // Decrease stage reaches its end
-            current = Force();
+            current = Velo();
             return;
         }
         float passedTime =
@@ -124,7 +142,7 @@ public:
                    remainingDecreaseDur);
         if (remainingModDur > 0) {
             // Mod stage
-            Force speedIncrease = (stable - current) / remainingModDur;
+            Velo speedIncrease = (stable - current) / remainingModDur;
             if (passedTime < remainingModDur) {
                 remainingModDur -= passedTime;
             } else {
@@ -132,12 +150,12 @@ public:
                 remainingModDur = 0;
             }
             current = current + speedIncrease * passedTime;
-            //current.CapForce(stable);
+            //current.CapVelo(stable);
         }
 
         if (remainingDecreaseDur > 0 && startedDecrease) {
             // Decrease stage
-            Force speedDecrease = (current) / remainingDecreaseDur;
+            Velo speedDecrease = (current) / remainingDecreaseDur;
             if (passedTime < remainingDecreaseDur) {
                 remainingDecreaseDur -= passedTime;
             } else {
@@ -153,7 +171,7 @@ public:
 
     // ModStable modifies stable and makes current gradually reach stable. It also stops decreasing stage.
     void ModStable(float x, float y, float z, float modDur) { 
-        stable = Force(x, y, z);
+        stable = Velo(x, y, z);
         remainingModDur = modDur;
         remainingDecreaseDur = 0.0f;
         startedDecrease = false;
@@ -169,7 +187,7 @@ public:
         startedDecrease = true;
     }
 
-    // IsDecreaseComplete returns true when this Force was commanded to decrease and is now almost zero, and not interrupted by ModStable
+    // IsDecreaseComplete returns true when this Velo was commanded to decrease and is now almost zero, and not interrupted by ModStable
     bool IsDecreaseComplete() {
         if (startedDecrease && abs(current.x) < 0.3f && abs(current.y) < 0.3f && abs(current.z) < 0.3f) {
             return true;
@@ -177,23 +195,4 @@ public:
             return false;
         }
     }
-};
-
-class AllForce {
-public:
-    //TODO: replace with a vector
-    TrapezoidForce* allCurrent;
-
-
-    AllForce() : allCurrent(nullptr) {}
-
-    void UpdateAll() { 
-        auto now = std::chrono::high_resolution_clock::now();
-
-        allCurrent->Update(now);
-    }
-
-    Force SumAll() { return allCurrent->current;
-    }
-
 };

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Settings.h"
+
 #include <string>
 
 bool play_impact_1(RE::Actor* actor, const RE::BSFixedString& nodeName);
@@ -49,6 +51,53 @@ RE::TESGlobal* GetTriggerR();
 RE::TESGlobal* GetGripL();
 RE::TESGlobal* GetGripR();
 
+
+RE::TESForm* GetMyForm(RE::FormID partFormID);
+RE::TESObjectACTI* GetWindSm();
+RE::TESObjectACTI* GetWindMid();
+RE::TESObjectACTI* GetWindLg();
+RE::TESObjectACTI* GetWindEx();
+
+
+RE::BGSExplosion* GetExploSm();
+RE::BGSExplosion* GetExploMid();
+RE::BGSExplosion* GetExploLg();
+RE::BGSExplosion* GetExploRock();
+
+// From: https://github.com/fenix31415/UselessFenixUtils
+void play_sound(RE::TESObjectREFR* object, RE::FormID formid, float volume);
+
+// From: https://github.com/D7ry/valhallaCombat/blob/2d686d2bddca3b3448af3af3c6b43e2fb3f5ced9/src/include/offsets.h#L48
+inline int soundHelper_a(void* manager, RE::BSSoundHandle* a2, int a3, int a4)  // sub_140BEEE70
+{
+    using func_t = decltype(&soundHelper_a);
+    REL::Relocation<func_t> func{RELOCATION_ID(66401, 67663)};
+    return func(manager, a2, a3, a4);
+}
+
+// From: https://github.com/D7ry/valhallaCombat/blob/2d686d2bddca3b3448af3af3c6b43e2fb3f5ced9/src/include/offsets.h#L55
+inline void soundHelper_b(RE::BSSoundHandle* a1, RE::NiAVObject* source_node)  // sub_140BEDB10
+{
+    using func_t = decltype(&soundHelper_b);
+    REL::Relocation<func_t> func{RELOCATION_ID(66375, 67636)};
+    return func(a1, source_node);
+}
+
+// From: https://github.com/D7ry/valhallaCombat/blob/2d686d2bddca3b3448af3af3c6b43e2fb3f5ced9/src/include/offsets.h#L62
+inline char __fastcall soundHelper_c(RE::BSSoundHandle* a1)  // sub_140BED530
+{
+    using func_t = decltype(&soundHelper_c);
+    REL::Relocation<func_t> func{RELOCATION_ID(66355, 67616)};
+    return func(a1);
+}
+
+// From: https://github.com/D7ry/valhallaCombat/blob/2d686d2bddca3b3448af3af3c6b43e2fb3f5ced9/src/include/offsets.h#L69
+inline char set_sound_position(RE::BSSoundHandle* a1, float x, float y, float z) {
+    using func_t = decltype(&set_sound_position);
+    REL::Relocation<func_t> func{RELOCATION_ID(66370, 67631)};
+    return func(a1, x, y, z);
+}
+
 class twoNodes {
 public:
     RE::NiNode* nodeL;
@@ -71,3 +120,10 @@ RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player);
 
 void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE::NiPoint3& posWeaponTop,
                              RE::NiNode* bone);
+
+RE::NiPoint3 Quad2Velo(RE::hkVector4& a_velocity);
+
+float CurrentSpellWheelSlowRatio(RE::Actor* player);
+
+// Get a float conf that is stored in a TESGlobal
+float GetFConf(FConf name);

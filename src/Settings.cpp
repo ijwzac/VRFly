@@ -7,6 +7,7 @@ using namespace SKSE::log;
 bool bEnableWholeMod = true;
 bool bShowEmitSpellDirection = false;
 int64_t iFrameCount = 0;
+int64_t iLastPressGrip = 0;
 int iTraceLevel = 0;
 std::chrono::steady_clock::time_point last_time;
 
@@ -21,7 +22,7 @@ int iHapticStrMax = 50;
 float fHapticMulti = 1.0f;
 int iHapticLengthMicroSec = 100000;  // 100 ms
 
-float fMagicNum1 = 1.5f;
+float fMagicNum1 = 0.1f;
 float fMagicNum2 = 0.0f;
 float fMagicNum3 = 0.0f;
 

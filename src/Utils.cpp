@@ -1,4 +1,3 @@
-#include "Settings.h"
 #include "OnMeleeHit.h"
 #include "Utils.h"
 
@@ -174,17 +173,12 @@ RE::SpellItem* GetTimeSlowSpell_SpeelWheel() {
 
     // Thanks to Shizof, there is a spell with formID 20A00 that is specifically added in Spell Wheel VR for our convenience 
     // So we should try this one first
-    RE::FormID partFormID1 = 0x020A00;
-    RE::FormID partFormID2 = 0x000EA5; // this is the spell that Spell wheel itself uses to slow time. We should avoid using it now
-    RE::FormID fullFormID1 = GetFullFormID(spellWheelIndex.value(), partFormID1);
-    RE::SpellItem* timeSlowSpell = RE::TESForm::LookupByID<RE::SpellItem>(fullFormID1); 
+    RE::FormID partFormID = 0x000EA5; // this is the spell that Spell wheel itself uses to slow time, not the one given to our weap collision mod
+    RE::FormID fullFormID = GetFullFormID(spellWheelIndex.value(), partFormID);
+    RE::SpellItem* timeSlowSpell = RE::TESForm::LookupByID<RE::SpellItem>(fullFormID); 
     if (!timeSlowSpell) {
-        RE::FormID fullFormID2 = GetFullFormID(spellWheelIndex.value(), partFormID2);
-        timeSlowSpell = RE::TESForm::LookupByID<RE::SpellItem>(fullFormID2);
-        if (!timeSlowSpell) {
-            log::error("GetTimeSlowSpell: failed to get timeslow spell");
-            return nullptr;
-        }
+        log::error("GetTimeSlowSpell: failed to get timeslow spell");
+        return nullptr;
     }
     return timeSlowSpell;
 }
@@ -353,6 +347,114 @@ RE::TESGlobal* GetGripR() {
     return g;
 }
 
+
+RE::TESForm* GetMyForm(RE::FormID partFormID) {
+    RE::TESForm* g;
+
+    // First, try to find the spell using normal ESP
+    auto handler = RE::TESDataHandler::GetSingleton();
+    if (!handler) {
+        log::error("GetMyForm: failed to get TESDataHandler");
+        return nullptr;
+    }
+    auto espIndex = handler->GetLoadedModIndex("VRFly.esp");
+    if (!espIndex.has_value()) {
+        log::trace("GetMyForm: failed to get VRFly.esp");
+    } else {
+        RE::FormID fullFormID = GetFullFormID(espIndex.value(), partFormID);
+        g = RE::TESForm::LookupByID(fullFormID);
+        if (g) return g;
+    }
+
+    // Second, try to find the spell using ESL
+    // TODO: is this really OK?
+    for (uint16_t i = 0; i <= 0xFFF; i++) {
+        RE::FormID fullFormID = GetFullFormID_ESL(0xFE, i, partFormID);
+        g = RE::TESForm::LookupByID(fullFormID);
+        if (g) return g;
+    }
+
+    log::error("GetMyForm: failed to get the form {:x}", partFormID);
+    return nullptr;
+}
+
+RE::TESObjectACTI* GetWindSm() {
+    static RE::TESObjectACTI* g;
+    if (!g) {
+        g = static_cast<RE::TESObjectACTI*>(GetMyForm(0x0080A3));
+    }
+    return g;
+}
+RE::TESObjectACTI* GetWindMid() {
+    static RE::TESObjectACTI* g;
+    if (!g) {
+        g = static_cast<RE::TESObjectACTI*>(GetMyForm(0x0080A4));
+    }
+    return g;
+}
+RE::TESObjectACTI* GetWindLg() {
+    static RE::TESObjectACTI* g;
+    if (!g) {
+        g = static_cast<RE::TESObjectACTI*>(GetMyForm(0x0080A5));
+    }
+    return g;
+}
+RE::TESObjectACTI* GetWindEx() {
+    static RE::TESObjectACTI* g;
+    if (!g) {
+        g = static_cast<RE::TESObjectACTI*>(GetMyForm(0x0080A6));
+    }
+    return g;
+}
+
+RE::BGSExplosion* GetExploSm() {
+    static RE::BGSExplosion* g;
+    if (!g) {
+        g = static_cast<RE::BGSExplosion*>(GetMyForm(0x00DE96));
+    }
+    return g;
+}
+RE::BGSExplosion* GetExploMid() {
+    static RE::BGSExplosion* g;
+    if (!g) {
+        g = static_cast<RE::BGSExplosion*>(GetMyForm(0x00DE97));
+    }
+    return g;
+}
+RE::BGSExplosion* GetExploLg() {
+    static RE::BGSExplosion* g;
+    if (!g) {
+        g = static_cast<RE::BGSExplosion*>(GetMyForm(0x00DE98));
+    }
+    return g;
+}
+RE::BGSExplosion* GetExploRock() {
+    static RE::BGSExplosion* g;
+    if (!g) {
+        g = static_cast<RE::BGSExplosion*>(GetMyForm(0x0080AA));
+    }
+    return g;
+}
+
+
+// From: https://github.com/fenix31415/UselessFenixUtils
+void play_sound(RE::TESObjectREFR* object, RE::FormID formid, float volume) {
+    RE::BSSoundHandle handle;
+    handle.soundID = static_cast<uint32_t>(-1);
+    handle.assumeSuccess = false;
+    *(uint32_t*)&handle.state = 0;
+
+    auto manager = RE::BSAudioManager::GetSingleton();
+    if (manager) {
+        soundHelper_a(manager, &handle, formid, 16);
+        if (set_sound_position(&handle, object->data.location.x, object->data.location.y, object->data.location.z)) {
+            handle.SetVolume(volume);
+            soundHelper_b(&handle, object->Get3D());
+            soundHelper_c(&handle);
+        }
+    }
+}
+
 float generateRandomFloat(float min, float max) {
     // Create a random device and use it to seed the Mersenne Twister engine
     std::random_device rd;
@@ -504,13 +606,15 @@ RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player) {
         return RE::NiPoint3();
     }
 
+    result = pos;
+
     // remove the effect of player's facing angle
-    auto angle = player->GetAngleZ();
-    float pi = 3.141592f;
-    result.z = pos.z;
-    result.x = pos.x * cos(angle - pi) - pos.y * sin(angle - pi);
-    result.y = pos.x * sin(angle - pi) + pos.y * cos(angle - pi);
-    log::trace("Angle:{}", angle);
+    //auto angle = player->GetAngleZ();
+    //float pi = 3.141592f;
+    //result.z = pos.z;
+    //result.x = pos.x * cos(angle - pi) - pos.y * sin(angle - pi);
+    //result.y = pos.x * sin(angle - pi) + pos.y * cos(angle - pi);
+    //log::trace("Angle:{}", angle);
 
     return result;
 }
@@ -524,4 +628,45 @@ void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE
     } else if (iFrameCount % 3 == 0 && iFrameCount % 6 == 0) {
         play_impact_2(actor, RE::TESForm::LookupByID<RE::BGSImpactData>(0x0004BB52), &P_V, &posWeaponBottom, bone);
     }
+}
+
+RE::NiPoint3 Quad2Velo(RE::hkVector4& a_velocity) {
+    return RE::NiPoint3(a_velocity.quad.m128_f32[0], a_velocity.quad.m128_f32[1], a_velocity.quad.m128_f32[2]);
+}
+
+float CurrentSpellWheelSlowRatio(RE::Actor* player) {
+    float ratio = 1.0f;
+    static RE::SpellItem* timeSlowSpell;
+    if (!timeSlowSpell) {
+        timeSlowSpell = GetTimeSlowSpell_SpeelWheel();
+        if (!timeSlowSpell) {
+            log::warn("Can't find time slow spell from spellwheel");
+            return ratio;
+        }
+    }
+
+    if (!player->HasSpell(timeSlowSpell)) {
+        return ratio;
+    }
+
+    for (RE::BSTArrayBase::size_type i = 0; i < timeSlowSpell->effects.size(); i++) {
+        auto effect = timeSlowSpell->effects.operator[](i);
+        if (!effect) {
+            log::trace("TimeSlowEffect: effect[{}] is null", i);
+            continue;
+        }
+        ratio = effect->effectItem.magnitude;
+        //log::trace("Magnitude: {}", ratio);
+    }
+
+    return ratio;
+}
+
+// Get a float conf that is stored in a TESGlobal
+float GetFConf(FConf name) {
+    static RE::TESGlobal* g;
+    if (!g) {
+        g = static_cast<RE::TESGlobal*>(GetMyForm(0x0080A3));
+    }
+    return g->value;
 }

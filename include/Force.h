@@ -196,3 +196,113 @@ public:
         }
     }
 };
+
+void VeloEffectMain(Velo& vel);
+
+
+class WindObj {
+public:
+    enum WindType { 
+        mid,
+        lg,
+        ex
+    };
+    RE::NiPointer<RE::TESObjectREFR> obj;
+    WindType type;
+    int64_t frameCreate;
+    bool setAngle = false;
+
+    WindObj(RE::NiPointer<RE::TESObjectREFR> obj, WindType type, int64_t frame) : obj(obj), type(type), frameCreate(frame) {}
+    WindObj() : obj(nullptr), frameCreate(0) {}
+
+    void Delete() { 
+        if (obj) {
+            auto ref = obj.get();
+            if (ref) {
+                ref->Disable(); // Our papyrus script will delete it after disable
+            }
+        }
+    }
+};
+
+class WindManager {
+public:
+    std::vector<WindObj> buffer;
+    std::size_t capacity;
+    std::size_t index;
+
+    WindManager(std::size_t cap) : buffer(cap), capacity(cap), index(0) {}
+
+    
+    static WindManager& GetSingleton() {
+        static WindManager singleton(20);
+        return singleton;
+    }
+
+    void Push(WindObj& obj) {
+        if (buffer[index].obj) {
+            log::trace("Deleting a wind");
+            buffer[index].Delete();
+        }
+        buffer[index] = obj;
+        index = (index + 1) % capacity;
+    }
+
+    void Clear() {
+        for (std::size_t i = 0; i < capacity; i++) {
+            if (buffer[i].obj) {
+                log::trace("Deleting a wind");
+                buffer[i].Delete();
+                buffer[i].obj = nullptr;
+                buffer[i].frameCreate = 0;
+            }
+        }
+        index = 0;
+    }
+
+    // Update should be called every frame, to delete old wind
+    void Update() {
+        auto& playerSt = PlayerState::GetSingleton();
+        for (std::size_t i = 0; i < capacity; i++) {
+            if (buffer[i].obj) {
+                if (iFrameCount - buffer[i].frameCreate > 1000) {
+                    log::trace("Deleting a wind");
+                    buffer[i].Delete();
+                    buffer[i].obj = nullptr;
+                    buffer[i].frameCreate = 0;
+                } else {
+                    auto windRef = buffer[i].obj.get();
+                    if (windRef) {
+                        if (windRef->Is3DLoaded() && buffer[i].setAngle == false) {
+                            log::trace("Moving a just loaded wind. Ori pos: {}, {}, {}", windRef->GetPositionX(),
+                                        windRef->GetPositionY(), windRef->GetPositionZ());
+                            float windAdvancePlayerTime;
+                            windRef->data.angle = playerSt.player->GetAngle() * 1.0f;
+                            auto newPos = playerSt.player->GetPosition();
+                            switch (buffer[i].type) { 
+                            case WindObj::mid: {
+                                    windAdvancePlayerTime = 60.0f + 30.0f * (float)(rand()) / (float)(RAND_MAX);
+                                    break;
+                            }
+                            case WindObj::lg:
+                            case WindObj::ex: {
+                                    windAdvancePlayerTime = 20.0f + 5.0f * (float)(rand()) / (float)(RAND_MAX);
+                                    newPos.z += 100.0f;
+                                    //log::trace("lg or ex wind angle: {}, {}, {}", windRef->data.angle.x,
+                                    //           windRef->data.angle.y, windRef->data.angle.z);
+                                    break;
+                            }
+                                    
+                            }
+                            newPos += Quad2Velo(playerSt.velocity) * windAdvancePlayerTime;
+                            windRef->SetPosition(newPos);
+                            log::trace("Setting it to new pos: {}, {}, {}", newPos.x, newPos.y, newPos.z);
+                            buffer[i].setAngle = true;
+                                
+                        }
+                    }
+                }
+            }
+        }
+    }
+};

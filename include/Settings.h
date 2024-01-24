@@ -5,6 +5,7 @@ extern bool bEnableWholeMod;
 
 // Global
 extern int64_t iFrameCount;
+extern int64_t iLastPressGrip;
 extern std::chrono::steady_clock::time_point last_time;
 
 extern float fTimeSlowRatio; // 0.1 means time flows at 10% of normal time
@@ -170,9 +171,15 @@ public:
             auto dxScanCode = buttonEvent->GetIDCode();
             //logger::trace("Pressed key {}", dxScanCode);
 
+            if (dxScanCode == 2) iLastPressGrip = iFrameCount;
 
         }
 
         return RE::BSEventNotifyControl::kContinue;
     }
+};
+
+enum class FConf {
+    MaxVeloZ,
+    MaxVeloLength,
 };

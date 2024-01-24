@@ -12,7 +12,7 @@ using namespace SKSE::log;
 using namespace SKSE::stl;
 
 ZacOnFrame::SlowTimeEffect ZacOnFrame::slowTimeData = ZacOnFrame::SlowTimeEffect(0);
-AllFlyEffects allEffects = AllFlyEffects(20);
+AllFlyEffects allEffects = AllFlyEffects(10);
 
 namespace {
     /**

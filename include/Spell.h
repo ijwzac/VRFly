@@ -121,8 +121,10 @@ public:
     bool isLeft;
 
     // parameters
-    float maxZ = 0.6f;
-    float length = 1.2f;
+    float maxZ = 6.3f;
+    float maxZDouble = 3.0f; // When there is another EmitForceSpell, maxZ of this one is set to this
+    float length = 9.5f;
+    float maxXY = 2.0f;
 
     EmitForceSpell(bool isValid, bool isLeft) 
         : valid(isValid), isLeft(isLeft) {}
@@ -163,6 +165,11 @@ public:
 
             result = verticleVector * length;
             if (result.z > maxZ) result.z = maxZ;
+            auto xy = sqrt(result.x * result.x + result.y * result.y);
+            if (xy > maxXY) {
+                result.x = result.x / xy * maxXY;
+                result.y = result.y / xy * maxXY;
+            }
 
         } else {
             log::warn("Fail to get player hand node ");
@@ -176,9 +183,12 @@ public:
 class WingSpell {
 public:
     bool valid;
-
     // parameters
-    float conf_slapStrength = 4.0f; // TODO: this is a little high, while gravity is too low
+    float conf_slapStrength = 20.0f; // TODO: this is a little high, while gravity is too low
+
+    RE::NiPoint3 handPosL; // This is the hand pos used only by wings, not by others
+    RE::NiPoint3 handPosR;
+
 
     WingSpell(bool isValid) : valid(isValid) {}
 
@@ -192,6 +202,12 @@ public:
         result = result - speedR * conf_slapStrength;
         
         return result;
+    }
+
+    void UpdateHandPos() {
+        auto& playerSt = PlayerState::GetSingleton();
+        handPosL = GetPlayerHandPos(true, playerSt.player);
+        handPosR = GetPlayerHandPos(false, playerSt.player);
     }
 };
 
@@ -252,8 +268,17 @@ public:
     }
 };
 
-// CalculateDragSimple assumes that Drag is always in the opposite direction of velocity, 
+// CalculateDragSimple assumes that Drag is always in the opposite direction of velocity
 Force CalculateDragSimple(RE::NiPoint3& currentVelo);
+
+// CalculateDragComplex calculates drag by the velocity and player's wings direction
+Force CalculateDragComplex(RE::NiPoint3& currentVelo);
+
+
+// CalculateLift calculates lift by the velocity and player's wings direction
+Force CalculateLift(RE::NiPoint3& currentVelo);
+
+Force CalculateVerticalHelper(RE::NiPoint3& currentVelo);
 
 class AllFlyEffects {
 public:
@@ -270,7 +295,7 @@ public:
 
     Velo gravityV = Velo(0.0f, 0.0f, -1.9f);
 
-    Force gravityF = Force(0.0f, 0.0f, -0.7f);
+    Force gravityF = Force(0.0f, 0.0f, -8.0f);
 
     AllFlyEffects(std::size_t cap) : bufferV(cap), capacityV(cap), indexV(0), bufferF(cap), capacityF(cap), indexF(0) {
         lastUpdate = std::chrono::high_resolution_clock::now();
@@ -281,17 +306,21 @@ public:
     }
 
     void Clear() { 
-        for (auto e : bufferV) {
-            if (e) delete e;
+        for (std::size_t i = 0; i < capacityV; i++) {
+            if (bufferV[i]) {
+                delete bufferV[i];
+                bufferV[i] = nullptr;
+            }
         }
-        bufferV.clear();
         indexV = 0;
 
         
-        for (auto e : bufferF) {
-            if (e) delete e;
+        for (std::size_t i = 0; i < capacityF; i++) {
+            if (bufferF[i]) {
+                delete bufferF[i];
+                bufferF[i] = nullptr;
+            }
         }
-        bufferF.clear();
         indexF = 0;
 
         accumVelocity = RE::NiPoint3();
@@ -353,6 +382,7 @@ public:
     // Note that we don't update all effects in bufferV, so we can know which effect hasn't been updated and should be deleted
 
     Velo SumCurrentVelo() {
+        auto playerSt = PlayerState::GetSingleton();
         Velo result = Velo();
 
         // Calculate all VeloEffect
@@ -374,42 +404,71 @@ public:
         auto now = std::chrono::high_resolution_clock::now();
         float passedTime =
             ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count()) / 1000.0f;
+        float conf_maxPassedTime = 0.1f;
+        if (passedTime > conf_maxPassedTime) passedTime = conf_maxPassedTime;
+        float timeSlowRatio = CurrentSpellWheelSlowRatio(playerSt.player);
+        // If slowing time, passed time should be reduced
+        if (timeSlowRatio < 0.9f) passedTime *= timeSlowRatio;
+
         bool noForceEffect = true;
+        bool seenSpell = false;
         for (auto e : bufferF) {
             if (e) {
                 noForceEffect = false;
                 auto f = e->force;
+                if (seenSpell && f.z > e->emitForceSpell.maxZDouble) f.z = e->emitForceSpell.maxZDouble;
                 log::trace("Found a valid ForceEffect with Force: {}, {}, {}", f.x, f.y, f.z);
                 accumVelocity = accumVelocity + f * passedTime;
+                seenSpell = true;
             }
         }
 
 
         
-        auto playerSt = PlayerState::GetSingleton();
         if (playerSt.player) {
             // If not on ground, and there is at least one Force, apply gravity and drag to player as force
             if (!noForceEffect && playerSt.player->IsInMidair()) {
                 accumVelocity = accumVelocity + gravityF * passedTime;
 
                 auto currentVelo = result.AsNiPoint3() + accumVelocity;
-                auto dragSimple = CalculateDragSimple(currentVelo);
                 log::trace("Current velo:{}, {}, {}", currentVelo.x, currentVelo.y, currentVelo.z);
-                accumVelocity = accumVelocity + dragSimple * passedTime;
-                log::trace("Applying gravityForce, Drag:{}, {}, {}", dragSimple.x, dragSimple.y, dragSimple.z);
+
+                RE::NiPoint3 drag, lift;
+                if (!playerSt.hasWings) {
+                    // if player doesn't have wings, simply calculate drag as opposite to currentVelo
+                    drag = CalculateDragSimple(currentVelo);
+                } else {
+                    // if player has wings, use wings direction to calculate drag
+                    drag = CalculateDragComplex(currentVelo);
+                    lift = CalculateLift(currentVelo);
+                }
+                accumVelocity = accumVelocity + drag * passedTime + lift * passedTime;
+                log::trace("Applying gravityForce and Drag. Drag is simple:{}", playerSt.hasWings == false);
+                log::trace("Drag {}:{}, {}, {}", drag.Length(), drag.x, drag.y, drag.z);
+                log::trace("Lift {}:{}, {}, {}", lift.Length(), lift.x, lift.y, lift.z);
+
+                RE::NiPoint3 help = CalculateVerticalHelper(currentVelo);
+                accumVelocity = accumVelocity + help * passedTime;
+                log::trace("Vertical help force {}:{}, {}, {}", help.Length(), help.x, help.y, help.z);
             }
 
             // If on ground, reduce accumVelocity greatly, so player don't slipper on ground
             if (!playerSt.player->IsInMidair()) {
                 if (accumVelocity.Length() < 0.05f && accumVelocity.z <= 0.0f) {
                     // static friction
-                    accumVelocity = RE::NiPoint3(0.0f, 0.0f, 0.0f);
+                    accumVelocity = accumVelocity * (0.85f);
+                    log::trace("After static friction. accumVelocity:{}, {}, {}", accumVelocity.x, accumVelocity.y,
+                               accumVelocity.z);
                 } else if (accumVelocity.Length() < 0.5f && accumVelocity.z <= 0.0f) {
-                    // static friction
-                    accumVelocity = accumVelocity * (1.0f - passedTime / 0.05f);
+                    // strong dynamic friction
+                    accumVelocity = accumVelocity * (1.0f - passedTime / 0.1f);
+                    log::trace("After strong dynamic friction. accumVelocity:{}, {}, {}", accumVelocity.x, accumVelocity.y,
+                               accumVelocity.z);
                 } else {
-                    // friction
+                    // weak dynamic friction
                     accumVelocity = accumVelocity * (1.0f - passedTime / 0.5f);
+                    log::trace("After dynamic friction. accumVelocity:{}, {}, {}", accumVelocity.x, accumVelocity.y,
+                               accumVelocity.z);
                 }
             }
         }
@@ -417,6 +476,11 @@ public:
         log::trace("Accumulated velocity itself: {}, {}, {}", accumVelocity.x, accumVelocity.y,
                    accumVelocity.z);
         result = result + accumVelocity;
+        static float maxVeloLength = 0.0f;
+        if (result.Length() > maxVeloLength) {
+            maxVeloLength = result.Length();
+            log::trace("New highest Velo:{}", maxVeloLength);
+        }
         lastUpdate = now;
         return result;
     }
@@ -437,6 +501,40 @@ public:
             }
         }
         return true;
+    }
+
+    bool IsEffectOnlyWings() {
+        bool hasWings = false;
+        bool hasOtherEffect = false;
+        for (auto e : bufferF) {
+            if (e) {
+                if (e->emitForceSpell.valid) {
+                    hasOtherEffect = true;
+                    break;
+                }
+                if (e->wingSpell.valid) {
+                    hasWings = true;
+                }
+            }
+        }
+        for (auto e : bufferV) {
+            if (e) {
+                hasOtherEffect = true;
+                break;
+            }
+        }
+        return hasWings && !hasOtherEffect;
+    }
+
+    ForceEffect* GetWingEff() {
+        for (auto e : bufferF) {
+            if (e) {
+                if (e->wingSpell.valid) {
+                    return e;
+                }
+            }
+        }
+        return nullptr;
     }
 
     // TODO: finish this
@@ -470,3 +568,5 @@ extern AllFlyEffects allEffects;
 
 void SpellCheckMain();
 
+
+void WingsCheckMain();

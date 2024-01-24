@@ -29,11 +29,100 @@ void ZacOnFrame::InstallFrameHook() {
 
 void ZacOnFrame::HookSetVelocity(RE::bhkCharProxyController* controller, RE::hkVector4& a_velocity) {
     auto& playerSt = PlayerState::GetSingleton();
-    if (playerSt.setVelocity) {
-        _SetVelocity(controller, playerSt.velocity);
-    } else {
+    if (!playerSt.player || !playerSt.player->Is3DLoaded()) {
         _SetVelocity(controller, a_velocity);
+        return;
     }
+
+    // Check if this is dragon or player
+    //RE::hkVector4 pos1;
+    //controller->GetPositionImpl(pos1, false);
+    //log::trace("D");
+    //log::trace("D");
+    //RE::NiPoint3 pos2 = Quad2Velo(pos1);
+    //log::trace("D");
+    //log::trace("D");
+    //RE::NiPoint3 diffPos = playerSt.player->GetPosition() - pos2;
+    //log::trace("D");
+    //log::trace("D");
+    //log::trace("diffPos:{}, {}, {}", diffPos.x, diffPos.y, diffPos.z);
+    //if (diffPos.Length() > 100.0f) {
+    //    log::trace("Not player");
+    //    _SetVelocity(controller, a_velocity);
+    //    return;
+    //}
+    log::trace("jump height:{}", controller->jumpHeight);
+    if (controller->jumpHeight != 0) {
+        log::trace("Not player or player is jumping");
+        _SetVelocity(controller, a_velocity);
+        return;
+    }
+
+    if (playerSt.player->IsInWater()) {
+        _SetVelocity(controller, a_velocity);
+        return;
+    }
+
+    if (auto charController = playerSt.player->GetCharController(); charController) {
+        if (charController->flags.any(RE::CHARACTER_FLAGS::kJumping)) {
+            log::trace("Jumping");
+            playerSt.lastJumpFrame = iFrameCount;
+            _SetVelocity(controller, a_velocity);
+            return;
+        }
+    }
+
+    int64_t conf_jumpExpireDur = 180;
+    if (iFrameCount - playerSt.lastJumpFrame < conf_jumpExpireDur && iFrameCount - playerSt.lastJumpFrame > 0) {
+        log::trace("Recently jumped");
+        _SetVelocity(controller, a_velocity);
+        return;
+    }
+
+    bool isInMidAir = playerSt.player->IsInMidair();
+    bool isFirstUpdateMidAir = false;
+    if (playerSt.isInMidAir == false && isInMidAir) isFirstUpdateMidAir = true;
+    if (playerSt.isInMidAir == true && isInMidAir == false && iFrameCount - playerSt.lastOngroundFrame > 40) {
+        playerSt.shouldCheckKnock = true;
+    }
+    playerSt.isInMidAir = isInMidAir;
+    if (!isInMidAir) playerSt.lastOngroundFrame = iFrameCount;
+
+    float timeSlowRatio = CurrentSpellWheelSlowRatio(playerSt.player);
+    auto ourVelo = playerSt.velocity;
+    if (timeSlowRatio < 0.9f) {
+        ourVelo = ourVelo * timeSlowRatio;
+        //log::trace("Detected slow time when setting velo. Ratio:{}", timeSlowRatio);
+    }
+
+    if (playerSt.setVelocity) {
+        // If the only effect is wings and player is not slapping wings and player on ground, combine the velocity
+        // TODO: problem with jump
+        if (playerSt.isEffectOnlyWings && !playerSt.isSlappingWings && !isInMidAir) {
+            log::trace("Combine velocity");
+            auto combined = a_velocity + ourVelo;
+            _SetVelocity(controller, combined);
+            return;
+        } else if (playerSt.isEffectOnlyWings && !playerSt.isSlappingWings && isInMidAir) {
+            if (isFirstUpdateMidAir) {
+                // This is the first update player steps into midair (from edge of cliff), we put the current velocity
+                // into accumulated velocity
+                allEffects.accumVelocity = Quad2Velo(a_velocity);
+                log::trace("Origin set velocity, but also modify our accumVelocity to this");
+                _SetVelocity(controller, a_velocity);
+                return;
+            }
+        }
+        // Otherwise, overwrite
+        log::trace("Overwrite velocity");
+        _SetVelocity(controller, ourVelo);
+        return;
+    }
+
+    log::trace("Origin set velocity velocity");
+    _SetVelocity(controller, a_velocity);
+    return;
+    
     // A strange thing: reading controller->GetCharacterProxy()->velocity crashes the game
 }
 
@@ -107,12 +196,10 @@ void ZacOnFrame::FlyMain() {
 
     // Update player's equipments
     playerSt.UpdateEquip();
-
-    // Update player's grounded status
-    playerSt.isInMidAir = player->IsInMidair();
-
     // Update player's hand position to speedBuf
     playerSt.UpdateSpeedBuf();
+    // Update recent velocity
+    playerSt.UpdateRecentVel();
 
     
     // PART I ======= Spell checking
@@ -121,15 +208,26 @@ void ZacOnFrame::FlyMain() {
     // PART II ====== Dragon wings checking
     WingsCheckMain();
 
-    // PART IV ======= Change player velocity
+
+    // PART III ======= Change player velocity
     Velo sumAll = allEffects.SumCurrentVelo();
     if (!allEffects.IsForceEffectEmpty() || !allEffects.IsVeloEffectEmpty()) {
         playerSt.SetVelocity(sumAll.x, sumAll.y, sumAll.z);
         playerSt.CancelFall();
+
+        playerSt.setVelocity = true;
+        playerSt.isEffectOnlyWings = allEffects.IsEffectOnlyWings();
     } else {
-        playerSt.StopSetVelocity();
+        playerSt.isEffectOnlyWings = false;
+        playerSt.setVelocity = false;
     }
+
     
+    // PART IV ====== Effects due to velocity
+    VeloEffectMain(sumAll);
+    WindManager::GetSingleton().Update();
+
+
 }
 
 void ZacOnFrame::TimeSlowEffect(RE::Actor* playerActor, int64_t slowFrame) { 
@@ -532,9 +630,11 @@ RE::hkVector4 ZacOnFrame::CalculatePushVector(RE::NiPoint3 sourcePos, RE::NiPoin
 
 // Clear every buffer before player load a save
 void ZacOnFrame::CleanBeforeLoad() { 
-    // TODO: clear speedring
     slowTimeData.clear();
     iFrameCount = 0;
+    iLastPressGrip = 0;
+    PlayerState::GetSingleton().Clear();
+    WindManager::GetSingleton().Clear();
 }
 
 

@@ -185,20 +185,8 @@ RE::SpellItem* GetTimeSlowSpell_SpeelWheel() {
 
 RE::SpellItem* GetTimeSlowSpell_Mine() {
 
-    RE::FormID partFormID = 0x000D63; // D63 is spell, D62 is effect
-    RE::SpellItem* timeSlowSpell;
-    //RE::FormID fullFormID = GetFullFormID(weaponCollisionIndex.value(), partFormID);
-    for (uint16_t i = 0; i <= 0xFFF; i++) {
-        RE::FormID fullFormID = GetFullFormID_ESL(0xFE, i, partFormID);
-        timeSlowSpell = RE::TESForm::LookupByID<RE::SpellItem>(fullFormID);
-        if (timeSlowSpell) break;
-    } 
-    
-    
-    if (!timeSlowSpell) {
-        log::error("GetTimeSlowSpell: failed to get timeslow spell");
-        return nullptr;
-    }
+    RE::FormID partFormID = 0x01C881;
+    RE::SpellItem* timeSlowSpell = GetMySpell(partFormID);
     return timeSlowSpell;
 }
 
@@ -281,6 +269,13 @@ RE::SpellItem* GetWingsFlagSpell() {
     static RE::SpellItem* s;
     if (!s) {
         s = GetMySpell(0x0051D6);
+    }
+    return s;
+}
+RE::SpellItem* GetShockWaveSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x01C886);
     }
     return s;
 }
@@ -378,10 +373,17 @@ RE::TESForm* GetMyForm(RE::FormID partFormID) {
     return nullptr;
 }
 
-RE::TESObjectACTI* GetWindSm() {
+RE::TESObjectACTI* GetSteamSm() {
     static RE::TESObjectACTI* g;
     if (!g) {
         g = static_cast<RE::TESObjectACTI*>(GetMyForm(0x0080A3));
+    }
+    return g;
+}
+RE::TESObjectACTI* GetSteamLg() {
+    static RE::TESObjectACTI* g;
+    if (!g) {
+        g = static_cast<RE::TESObjectACTI*>(GetMyForm(0x0254E8));
     }
     return g;
 }
@@ -428,6 +430,7 @@ RE::BGSExplosion* GetExploLg() {
     }
     return g;
 }
+
 RE::BGSExplosion* GetExploRock() {
     static RE::BGSExplosion* g;
     if (!g) {
@@ -540,7 +543,7 @@ twoNodes HandleClawRaces(RE::Actor* actor, RE::NiPoint3& posWeaponBottomL, RE::N
     }
 }
 
-void vibrateController(int hapticFrame, bool isLeft) {
+void vibrateController(int hapticFrame, int length, bool isLeft) {
     auto papyrusVM = RE::BSScript::Internal::VirtualMachine::GetSingleton();
 
     if (papyrusVM) {
@@ -549,14 +552,14 @@ void vibrateController(int hapticFrame, bool isLeft) {
 
         RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
 
-        log::trace("Calling papyrus");
+        //log::trace("Calling papyrus");
         if (papyrusVM->TypeIsValid("VRIK"sv)) {
-            log::trace("VRIK is installed");
+            //log::trace("VRIK is installed");
             RE::BSScript::IFunctionArguments* hapticArgs;
             if (isLeft) {
-                hapticArgs = RE::MakeFunctionArguments(true, (int)hapticFrame, (int)iHapticLengthMicroSec);
+                hapticArgs = RE::MakeFunctionArguments(true, (int)hapticFrame, (int)length);
             } else {
-                hapticArgs = RE::MakeFunctionArguments(false, (int)hapticFrame, (int)iHapticLengthMicroSec);
+                hapticArgs = RE::MakeFunctionArguments(false, (int)hapticFrame, (int)length);
             }
             // Function VrikHapticPulse(Bool onLeftHand, Int frames, Int microsec) native global
             papyrusVM->DispatchStaticCall("VRIK"sv, "VrikHapticPulse"sv, hapticArgs, callback);
@@ -569,10 +572,10 @@ void vibrateController(int hapticFrame, bool isLeft) {
             if (papyrusVM->TypeIsValid("Game"sv)) {
                 RE::BSScript::IFunctionArguments* hapticArgs;
                 if (isLeft) {
-                    hapticArgs = RE::MakeFunctionArguments(((float)hapticFrame) / ((float)iHapticStrMax), 0.0f,
+                    hapticArgs = RE::MakeFunctionArguments(((float)hapticFrame) / ((float)length), 0.0f,
                                                            (float)iHapticLengthMicroSec / 1000000);
                 } else {
-                    hapticArgs = RE::MakeFunctionArguments(0.0f, ((float)hapticFrame) / ((float)iHapticStrMax),
+                    hapticArgs = RE::MakeFunctionArguments(0.0f, ((float)hapticFrame) / ((float)length),
                                                            (float)iHapticLengthMicroSec / 1000000);
                 }
                 papyrusVM->DispatchStaticCall("Game"sv, "ShakeController"sv, hapticArgs, callback);
@@ -581,11 +584,11 @@ void vibrateController(int hapticFrame, bool isLeft) {
             }
         }
 
-        log::trace("Finished calling papyrus");
+        //log::trace("Finished calling papyrus");
     }
 }
 
-RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player) {
+RE::NiPoint3 GetPlayerHandPos_2(bool isLeft, RE::Actor* player, bool minusBase) {
     const auto actorRoot = netimmerse_cast<RE::BSFadeNode*>(player->Get3D());
     if (!actorRoot) {
         log::warn("GetPlayerHandPos:Fail to find player");
@@ -595,30 +598,92 @@ RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player) {
     const auto nodeNameR = "NPC R Hand [RHnd]"sv;
     const auto weaponL = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeNameL));
     const auto weaponR = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeNameR));
+    const auto nodeBaseStr = "NPC Pelvis [Pelv]"sv;  // base of player
+    const auto baseNode = netimmerse_cast<RE::NiNode*>(actorRoot->GetObjectByName(nodeBaseStr));
 
     RE::NiPoint3 pos, result;
-    if (isLeft && weaponL) {
-        pos = weaponL->world.translate - player->GetPosition();
-    } else if (!isLeft && weaponR) {
-        pos = weaponR->world.translate - player->GetPosition();
+    if (isLeft && weaponL && baseNode) {
+        if (minusBase) {
+            pos = weaponL->world.translate - baseNode->world.translate;
+        } else {
+            pos = weaponL->world.translate;
+        }
+    } else if (!isLeft && weaponR && baseNode) {
+        if (minusBase) {
+            pos = weaponR->world.translate - baseNode->world.translate;
+        } else {
+            pos = weaponR->world.translate;
+        }
+        
     } else {
         log::warn("GetPlayerHandPos:Fail to get player node for isLeft:{}", isLeft);
         return RE::NiPoint3();
     }
 
-    result = pos;
+    auto help = baseNode->world.translate - player->GetPosition();
+    log::trace("Diff between baseNode and player pos {}:{}, {}, {}", help.Length(), help.x, help.y, help.z);
+    // Diff: 11.251953, 1.1650391, 62.509766.
+    // Diff: -9.108398, -13.617371, 64.5376
 
-    // remove the effect of player's facing angle
-    //auto angle = player->GetAngleZ();
-    //float pi = 3.141592f;
-    //result.z = pos.z;
-    //result.x = pos.x * cos(angle - pi) - pos.y * sin(angle - pi);
-    //result.y = pos.x * sin(angle - pi) + pos.y * cos(angle - pi);
-    //log::trace("Angle:{}", angle);
+    result = pos;
+    if (minusBase) result.z -= 65.0f;
 
     return result;
 }
 
+RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player) {
+    auto playerCh = RE::PlayerCharacter::GetSingleton();
+    if (!playerCh) {
+        log::error("Can't get player!");
+
+    }
+    auto vrData = playerCh->GetVRNodeData();
+    const auto weaponL = vrData->NPCLHnd;
+    const auto weaponR = vrData->NPCRHnd;
+    const auto baseNode = vrData->UprightHmdNode;
+
+    RE::NiPoint3 pos, result;
+    if (isLeft && weaponL && baseNode) {
+        pos = weaponL->world.translate - baseNode->world.translate;
+    } else if (!isLeft && weaponR && baseNode) {
+        pos = weaponR->world.translate - baseNode->world.translate;
+    } else {
+        log::warn("GetPlayerHandPos:Fail to get player node for isLeft:{}", isLeft);
+        return RE::NiPoint3();
+    }
+
+    auto help = baseNode->world.translate - player->GetPosition();
+    log::trace("Diff between hmdNode and player pos {}:{}, {}, {}", help.Length(), help.x, help.y, help.z);
+
+
+
+    result = pos;
+    result.z += 120.0f; // hmd is 120 above player pos
+
+    return result;
+}
+
+
+bool IsPlayerHandCloseToHead(RE::Actor* player) {
+    auto playerCh = RE::PlayerCharacter::GetSingleton();
+    if (!playerCh) {
+        log::error("Can't get player!");
+    }
+    auto vrData = playerCh->GetVRNodeData();
+    const auto weaponL = vrData->NPCLHnd;
+    const auto weaponR = vrData->NPCRHnd;
+    const auto baseNode = vrData->UprightHmdNode;
+
+    if (weaponR && weaponL && baseNode) {
+        auto diffL = weaponL->world.translate - baseNode->world.translate;
+        auto diffR = weaponR->world.translate - baseNode->world.translate;
+
+        if (diffL.Length() < 20.0f || diffR.Length() < 20.0f) return true;
+    }
+
+    log::warn("IsPlayerHandCloseToHead:Fail to get player node for ");
+    return false;
+}
 
 void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE::NiPoint3& posWeaponTop,
                              RE::NiNode* bone) {

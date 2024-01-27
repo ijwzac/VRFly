@@ -43,6 +43,7 @@ void SpellCheckMain() {
                 log::trace("Is trigger pressed:{}", isCastingHandMatch);
 
                 if (isCastingHandMatch) {
+
                     // Now check if there exists an active effect matching this spell and its slot
                     auto slot = isLeft ? Slot::kLeft : Slot::kRight;
 
@@ -110,6 +111,18 @@ void SpellCheckMain() {
                     }
                 }
             }
+
+            // TODO: Even if player is not casting, if spell match and player pressing trigger, we should cancel jump
+            //if (!player->IsCasting(spell) && spell == equip) {
+            //    RE::TESGlobal* g = isLeft ? GetTriggerL() : GetTriggerR();
+            //    if (g) {
+            //        if (g->value > 0.9f) {
+            //            //playerSt.CancelFallFlag();
+            //            log::trace("Try to cancel fall"); // No use
+            //            player->NotifyAnimationGraph("FootLeft"sv);
+            //        }
+            //    }
+            //}
         }
 
         
@@ -129,7 +142,7 @@ Force CalculateDragSimple(RE::NiPoint3& currentVelo) {
 
 // CalculateDragComplex calculates drag by the velocity and player's wings direction
 Force CalculateDragComplex(RE::NiPoint3& currentVelo) {
-    auto playerSt = PlayerState::GetSingleton();
+    auto& playerSt = PlayerState::GetSingleton();
     float conf_maxDrag = 5.0f;
 
     // Drag's first part is still opposite to velocity, but smaller
@@ -156,11 +169,11 @@ Force CalculateDragComplex(RE::NiPoint3& currentVelo) {
 
 // CalculateLift calculates lift by the velocity and player's wings direction
 Force CalculateLift(RE::NiPoint3& currentVelo) {
-    auto playerSt = PlayerState::GetSingleton();
+    auto& playerSt = PlayerState::GetSingleton();
 
-    float conf_maxLift = 15.0f;
+    float conf_maxLift = 11.0f;
     float conf_maxLiftZ = 11.0f;
-    float conf_veloMaintainEffect = 0.5f; // when 1.0, completely reduce part of force that slows player down
+    float conf_veloMaintainEffect = 0.2f; // when 1.0, completely reduce part of force that slows player down
 
     // Lift is in the direction of wings direction. Lift = coefficient * v^2 
     float conf_liftcoefficient = 0.07f;
@@ -188,6 +201,9 @@ Force CalculateLift(RE::NiPoint3& currentVelo) {
 // and the force is in the same plane formed by velocity and the middle of player's hands
 // This force helps velocity to fastly turn to where player's hands point, while conserve the energy
 Force CalculateVerticalHelper(RE::NiPoint3& currentVelo) {
+    float conf_helpCoefficient = 0.3f;
+    float conf_maxHelp = 7.0f;
+
     auto& playerSt = PlayerState::GetSingleton();
     float conf_shoulderHeight = 100.0f;
 
@@ -226,9 +242,6 @@ Force CalculateVerticalHelper(RE::NiPoint3& currentVelo) {
 
     // Normalize the force vector
     float vel = currentVelo.Length();
-    float conf_helpCoefficient = 0.4f;
-
-    float conf_maxHelp = 11.0f;
     float dotVeloHand = currentVelo.Dot(handAverage) / vel;
     if (dotVeloHand < 0.0f) return force;
 
@@ -261,7 +274,39 @@ void WingsCheckMain() {
         return;
     }
 
+
     playerSt.hasWings = true;
+
+
+    // Player can put one hand to forehead to see nearby lifting stuff
+    if (iFrameCount - playerSt.lastSpawnSteamFrame > 400 && iFrameCount % 100 != 17) { // don't run at the same frame as normal sparse scan
+        if (IsPlayerHandCloseToHead(player)) {
+            RE::DebugNotification("Visualizing lifting wind");
+            playerSt.lastSpawnSteamFrame = iFrameCount;
+            playerSt.SparseScan(6000.0f);
+            playerSt.SpawnSteamNearby(6000.0f);
+        } 
+    }
+
+    
+    // Code for living creature lift (Spiritual Lift)
+    if (playerSt.isInMidAir) {
+        auto uponActor = playerSt.FindActorAtFoot();
+        if (uponActor) {
+            ExtraLiftManager::GetSingleton().AddSpiritual(uponActor, player);
+            if (iFrameCount - playerSt.lastNotification > 240) {
+                playerSt.lastNotification = iFrameCount;
+                auto name = uponActor->GetDisplayFullName();
+                char message[256];
+                std::sprintf(message, "Spiritual lift from %s", name);
+                RE::DebugNotification(message);
+                playerSt.isInSpiritualLift = true;
+            }
+        } else {
+            playerSt.isInSpiritualLift = false;
+
+        }
+    }
 
     auto slot = Slot::kHead;
     auto eff = allEffects.FindForceEffect(slot, spellWingsFlag);
@@ -278,6 +323,12 @@ void WingsCheckMain() {
     // No matter what, update the effect to prevent it from being deleted
     eff->force = Force(0.0f, 0.0f, 0.0f);
     eff->Update();
+
+    // If player on ground, wing direction is reset
+    if (playerSt.isInMidAir == false) {
+        playerSt.dirWings = RE::NiPoint3(0.0f, 0.0f, 1.0f);
+        playerSt.everSetWingDirSinceThisFlight = false;
+    }
       
 
     // If player isn't holding both grips, don't do anything
@@ -292,6 +343,7 @@ void WingsCheckMain() {
         return;
     }
 
+
     // Update hand pos that's gonna used in calculations related to wings
     // But only when player is not slapping wings and not recently slapped wings
     if (playerSt.isSlappingWings == false &&
@@ -299,14 +351,19 @@ void WingsCheckMain() {
         eff->wingSpell.UpdateHandPos();
     }
 
-    
+    static int skyDivingCountDown = 20;
     auto speedL = playerSt.speedBuf.GetVelocity(5, true);
     auto speedR = playerSt.speedBuf.GetVelocity(5, false);
     log::trace("Player controller speedL: {}, {}, {}", speedL.x, speedL.y, speedL.z);
     log::trace("Player controller speedR: {}, {}, {}", speedR.x, speedR.y, speedR.z);
     float conf_slapThres = 1.0f;
-    if (speedL.Length() > conf_slapThres || speedR.Length() > conf_slapThres) {
-        // Case 1: player is moving controllers fast. Set force based on controller speed
+
+    
+    if ((speedL.Length() > conf_slapThres || speedR.Length() > conf_slapThres) && iFrameCount - playerSt.lastSuddenTurnFrame > 8) {
+        // Case 1: player is moving controllers fast, and also not turning. Set force based on controller speed
+        playerSt.isSkyDiving = false;
+        skyDivingCountDown = 20;
+
         Force newForce;
         newForce = eff->wingSpell.CalculateSlapForce(speedL, speedR);
         eff->force = newForce;
@@ -329,23 +386,44 @@ void WingsCheckMain() {
 
             auto player = playerSt.player;
             RE::FormID sound;
-            float volume = 1.7f;
+            float volume = 2.0f;
             if (iFrameCount - playerSt.lastOngroundFrame < 10 && handSpeed > 1.5f) {
                 //NPCDragonTakeoffFXSD
                 sound = 0x3E5D8;
             } else if (handSpeed > 1.5f) {
                 //NPCDragonWingFlapTakeoffSD
-                volume = 1.9f;
+                volume = 2.5f;
                 sound = 0x3D122;
             } else {
                 // NPCDragonWingFlapSD
-                volume = 1.9f;
+                volume = 2.5f;
                 sound = 0x3CE00;
             }
             if (mustPlay) {
+                PlayWingAnimation(playerSt.player, speedL, speedR);
+
+                if (iFrameCount >= playerSt.reenableVibrateFrame) {
+                    vibrateController(speedL.Length() * 5, 70000, true);
+                    vibrateController(speedR.Length() * 5, 70000, false);
+                    playerSt.reenableVibrateFrame = iFrameCount + 70 / 8;  // 70 is ms, 8 is ms/frame
+                }
+
+
                 playerSt.lastSoundFrame = iFrameCount;
                 SKSE::GetTaskInterface()->AddTask([player, sound, volume]() { play_sound(player, sound, volume); });
+            
             } else if (sound == 0x3E5D8) {
+                PlayWingAnimation(playerSt.player, speedL, speedR);
+
+                // Try to play wing animation
+                playerSt.player->NotifyAnimationGraph("eFlyingUp"sv);
+                if (iFrameCount >= playerSt.reenableVibrateFrame) {
+                    vibrateController(speedL.Length() * 7, 100000, true);
+                    vibrateController(speedR.Length() * 7, 100000, false);
+                    playerSt.reenableVibrateFrame = iFrameCount + 100 / 8;  // number is ms, 8 is ms/frame
+                }
+
+
                 playerSt.lastSoundFrame = iFrameCount;
                 SKSE::GetTaskInterface()->AddTask([player, sound, volume]() { play_sound(player, sound, volume); });
             } else {
@@ -360,17 +438,57 @@ void WingsCheckMain() {
         playerSt.frameLastSlap = iFrameCount;
     } else {
         // Case 2: player is moving controllers slow. This changes their wing direction
-        playerSt.UpdateWingDir(eff->wingSpell.handPosL, eff->wingSpell.handPosR);
+        playerSt.everSetWingDirSinceThisFlight = true;
+
+        
+        if (iFrameCount >= playerSt.reenableVibrateFrame) {
+            if (speedL.Length() > 0.2f)
+                vibrateController(1, 800, true);
+            if (speedR.Length() > 0.2f)
+                vibrateController(1, 800, false);
+            playerSt.reenableVibrateFrame = iFrameCount + 8;
+        }
+
+        auto wingDirZ = playerSt.UpdateWingDir(eff->wingSpell.handPosL, eff->wingSpell.handPosR);
         log::trace("Change wings direction to: {}, {}, {}", playerSt.dirWings.x, playerSt.dirWings.y,
                    playerSt.dirWings.z);
 
-
+        bool conf_skyDiving = true;
+        if (conf_skyDiving && wingDirZ < 0.0f) {
+            skyDivingCountDown--;
+            if (skyDivingCountDown == 0) playerSt.isSkyDiving = true;
+        } else {
+            playerSt.isSkyDiving = false;
+            skyDivingCountDown = 20;
+        }
     }
 
-    // TODO: the animation event that can trigger wings animation for gliding: "JumpFall"
-    // To player, their wings seem to be an art object
-    // For Bloody Dragon Wings, I want "mAnimation4s"
-    // Can google "NiControllerManager" to learn more
+
+}
 
 
+// To player, their wings seem to be an art object
+// For Bloody Dragon Wings, I want "mAnimation4s"
+// Can google "NiControllerManager" to learn more
+// From UAW author, we know the following animations can trigger wing animation:
+// eFlyingUp: very noticable up and down animation
+// JumpFall: extends the wings flatly, but forbids casting spells
+// BeginWeaponDraw, BeginCastRight: wings move forward a little, good animation
+// MRh_SpellFire_Event, Magic_Equip_Out, AttackStartRightHand: no animation
+// We can also use the dozens of animation events called in AAFlyScriptB.psc
+void PlayWingAnimation(RE::Actor* player, RE::NiPoint3 speedL, RE::NiPoint3 speedR) {
+    auto& playerSt = PlayerState::GetSingleton();
+    if (speedL.Length() == 0 || speedR.Length() == 0) return;
+    speedL = speedL / speedL.Length();
+    speedR = speedR / speedR.Length();
+    // If both speed have negative Z that is less than -0.7f, play eFlyingUp
+    if (speedL.z < -0.7f && speedR.z < -0.7f) {
+        player->NotifyAnimationGraph("eFlyingUp"sv);
+        playerSt.lastFlyUpFrame = iFrameCount;
+        return;
+    }
+
+    // Otherwise, play BeginWeaponDraw
+    player->NotifyAnimationGraph("BeginWeaponDraw"sv);
+    return;
 }

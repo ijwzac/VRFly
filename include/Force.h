@@ -231,6 +231,9 @@ public:
     std::size_t capacity;
     std::size_t index;
 
+    // Wind Manager also creates the rock explosion shortly after landing
+    int64_t frameLastRockExplo;
+
     WindManager(std::size_t cap) : buffer(cap), capacity(cap), index(0) {}
 
     
@@ -249,6 +252,8 @@ public:
     }
 
     void Clear() {
+        auto& playerSt = PlayerState::GetSingleton();
+        auto shockWaveSpell = GetShockWaveSpell();
         for (std::size_t i = 0; i < capacity; i++) {
             if (buffer[i].obj) {
                 log::trace("Deleting a wind");
@@ -258,50 +263,82 @@ public:
             }
         }
         index = 0;
+
+        if (shockWaveSpell) {
+            if (playerSt.player->HasSpell(shockWaveSpell)) playerSt.player->RemoveSpell(shockWaveSpell);
+        }
+        frameLastRockExplo = 0;
     }
 
     // Update should be called every frame, to delete old wind
     void Update() {
         auto& playerSt = PlayerState::GetSingleton();
+        auto shockWaveSpell = GetShockWaveSpell();
+
+        // Update rock explosion
+        RE::NiPointer<RE::TESObjectREFR> rock;
+        if (iFrameCount - frameLastRockExplo == 15 && frameLastRockExplo != 0) {
+            auto rockExplo = GetExploRock();
+            rock = playerSt.player->PlaceObjectAtMe(rockExplo, false);
+        }
+
+        // Remove player's cloak spell
+        if (iFrameCount - frameLastRockExplo >= 150 && frameLastRockExplo != 0) {
+            frameLastRockExplo = 0;
+            if (playerSt.player->HasSpell(shockWaveSpell)) playerSt.player->RemoveSpell(shockWaveSpell);
+        }
+
+
+
+        // Update Wind
         for (std::size_t i = 0; i < capacity; i++) {
             if (buffer[i].obj) {
-                if (iFrameCount - buffer[i].frameCreate > 1000) {
-                    log::trace("Deleting a wind");
-                    buffer[i].Delete();
-                    buffer[i].obj = nullptr;
-                    buffer[i].frameCreate = 0;
-                } else {
-                    auto windRef = buffer[i].obj.get();
-                    if (windRef) {
-                        if (windRef->Is3DLoaded() && buffer[i].setAngle == false) {
-                            log::trace("Moving a just loaded wind. Ori pos: {}, {}, {}", windRef->GetPositionX(),
-                                        windRef->GetPositionY(), windRef->GetPositionZ());
-                            float windAdvancePlayerTime;
-                            windRef->data.angle = playerSt.player->GetAngle() * 1.0f;
-                            auto newPos = playerSt.player->GetPosition();
-                            switch (buffer[i].type) { 
-                            case WindObj::mid: {
-                                    windAdvancePlayerTime = 60.0f + 30.0f * (float)(rand()) / (float)(RAND_MAX);
-                                    break;
-                            }
-                            case WindObj::lg:
-                            case WindObj::ex: {
-                                    windAdvancePlayerTime = 20.0f + 5.0f * (float)(rand()) / (float)(RAND_MAX);
-                                    newPos.z += 100.0f;
-                                    //log::trace("lg or ex wind angle: {}, {}, {}", windRef->data.angle.x,
-                                    //           windRef->data.angle.y, windRef->data.angle.z);
-                                    break;
-                            }
-                                    
-                            }
-                            newPos += Quad2Velo(playerSt.velocity) * windAdvancePlayerTime;
-                            windRef->SetPosition(newPos);
-                            log::trace("Setting it to new pos: {}, {}, {}", newPos.x, newPos.y, newPos.z);
-                            buffer[i].setAngle = true;
-                                
-                        }
-                    }
+                auto windRef = buffer[i].obj.get();
+                if (!windRef) continue;
+
+                // If a wind lives long enough, or player on ground, or player lose sight of the wind and far enough
+                // we should delete the wind
+                // This doesn't need to run every frame
+                if ((iFrameCount + i) % 5 == 0) {
+                    if (iFrameCount - buffer[i].frameCreate > 800 || playerSt.isInMidAir == false) {
+                        log::trace("Deleting a wind");
+                        buffer[i].Delete();
+                        buffer[i].obj = nullptr;
+                        buffer[i].frameCreate = 0;
+                        continue;
+                    } 
                 }
+                
+                
+                if (windRef->Is3DLoaded() && buffer[i].setAngle == false) {
+                    log::trace("Moving a just loaded wind. Ori pos: {}, {}, {}", windRef->GetPositionX(),
+                                windRef->GetPositionY(), windRef->GetPositionZ());
+                    float windAdvancePlayerTime;
+                    windRef->data.angle = playerSt.player->GetAngle() * 1.0f;
+                    auto newPos = playerSt.player->GetPosition();
+                    switch (buffer[i].type) { 
+                    case WindObj::mid: {
+                            windAdvancePlayerTime = 60.0f + 30.0f * (float)(rand()) / (float)(RAND_MAX);
+                            break;
+                    }
+                    case WindObj::lg:
+                    case WindObj::ex: {
+                            windAdvancePlayerTime = 20.0f + 5.0f * (float)(rand()) / (float)(RAND_MAX);
+                            newPos.z += 100.0f;
+                            //log::trace("lg or ex wind angle: {}, {}, {}", windRef->data.angle.x,
+                            //           windRef->data.angle.y, windRef->data.angle.z);
+                            break;
+                    }
+                                    
+                    }
+                    newPos += Quad2Velo(playerSt.velocity) * windAdvancePlayerTime;
+                    windRef->SetPosition(newPos);
+                    log::trace("Setting it to new pos: {}, {}, {}", newPos.x, newPos.y, newPos.z);
+                    buffer[i].setAngle = true;
+                                
+                }
+                
+                
             }
         }
     }

@@ -51,9 +51,9 @@ void ZacOnFrame::HookSetVelocity(RE::bhkCharProxyController* controller, RE::hkV
     //    _SetVelocity(controller, a_velocity);
     //    return;
     //}
-    log::trace("jump height:{}", controller->jumpHeight);
+    //if (controller->jumpHeight != 0 && playerSt.isDragonNearby) {
     if (controller->jumpHeight != 0) {
-        log::trace("Not player or player is jumping");
+        log::trace("jump height:{}. Not player. We still don't know why this is working", controller->jumpHeight);
         _SetVelocity(controller, a_velocity);
         return;
     }
@@ -119,7 +119,7 @@ void ZacOnFrame::HookSetVelocity(RE::bhkCharProxyController* controller, RE::hkV
         return;
     }
 
-    log::trace("Origin set velocity velocity");
+    log::trace("Origin set velocity");
     _SetVelocity(controller, a_velocity);
     return;
     
@@ -148,7 +148,7 @@ void ZacOnFrame::OnFrameUpdate() {
             auto dur_last = std::chrono::duration_cast<std::chrono::microseconds>(now - last_time);
             last_time = now;
             if (dur_last.count() > 1000 * 1000) { // 1 second
-                count_after_pause = 180;
+                count_after_pause = 60;
                 CleanBeforeLoad();
                 log::info("Detected long period since last frame. Player is probably loading. Clean and pause our functions for 3 seconds");
             }
@@ -200,7 +200,17 @@ void ZacOnFrame::FlyMain() {
     playerSt.UpdateSpeedBuf();
     // Update recent velocity
     playerSt.UpdateRecentVel();
+    // Check if need to cancel flyup animation
+    playerSt.UpdateAnimation();
+    // Check if player is suddenly turning
+    playerSt.DetectSuddenTurn();
+    // Update ExtraLiftManager
+    ExtraLiftManager::GetSingleton().Update();
 
+    // Every 100 frames, scan for dragons, living creatures, firespots
+    if (iFrameCount % 100 == 17) {
+        playerSt.SparseScan(3000.0f);
+    }
     
     // PART I ======= Spell checking
     SpellCheckMain();
@@ -211,9 +221,17 @@ void ZacOnFrame::FlyMain() {
 
     // PART III ======= Change player velocity
     Velo sumAll = allEffects.SumCurrentVelo();
+    float conf_maxVelo = 30.0f;
+    if (sumAll.Length() > conf_maxVelo) {
+        if (iFrameCount - playerSt.lastNotification > 360) {
+            playerSt.lastNotification = 0;
+            RE::DebugNotification("Reached max velocity");
+        }
+        sumAll = sumAll / sumAll.Length() * conf_maxVelo;
+    }
     if (!allEffects.IsForceEffectEmpty() || !allEffects.IsVeloEffectEmpty()) {
         playerSt.SetVelocity(sumAll.x, sumAll.y, sumAll.z);
-        playerSt.CancelFall();
+        playerSt.CancelFallNumber();
 
         playerSt.setVelocity = true;
         playerSt.isEffectOnlyWings = allEffects.IsEffectOnlyWings();
@@ -226,30 +244,37 @@ void ZacOnFrame::FlyMain() {
     // PART IV ====== Effects due to velocity
     VeloEffectMain(sumAll);
     WindManager::GetSingleton().Update();
+    if (playerSt.frameShouldSlowTime != 0 && playerSt.frameShouldSlowTime == iFrameCount) {
+        log::trace("Apply slow motion effect");
+        playerSt.frameShouldSlowTime = 0;
+        TimeSlowEffect(playerSt.player, 90, 0.3f);
+    }
+    auto& slowTimeData = SlowTimeEffect::GetSingleton();
+    if (slowTimeData.shouldRemove()) {
+        StopTimeSlowEffect(playerSt.player);
+    }
 
-
+    // Test: see if we can determine if a dragon is present
 }
 
-void ZacOnFrame::TimeSlowEffect(RE::Actor* playerActor, int64_t slowFrame) { 
-    if (slowFrame <= 0 || fTimeSlowRatio >= 1.0f || fTimeSlowRatio <= 0.0f) {
+void ZacOnFrame::TimeSlowEffect(RE::Actor* playerActor, int64_t slowFrame, float slowRatio) { 
+    if (slowFrame <= 0 || slowRatio >= 1.0f || slowRatio <= 0.0f) {
         log::trace("Due to settings, no time slow effect");
         return;
     }
+    auto& slowTimeData = SlowTimeEffect::GetSingleton();
 
-    // TODO: have a different frame counter for projectile
+
     if (iFrameCount - slowTimeData.frameLastSlowTime < 50 && iFrameCount - slowTimeData.frameLastSlowTime > 0) {
         log::trace("The last slow time effect is within 50 frames. Don't slow time now");
         return;
     }
 
     if (slowTimeData.timeSlowSpell == nullptr) {
-        RE::SpellItem* timeSlowSpell = GetTimeSlowSpell_SpeelWheel();
+        RE::SpellItem* timeSlowSpell = GetTimeSlowSpell_Mine();
         if (!timeSlowSpell) {
-            timeSlowSpell = GetTimeSlowSpell_Mine();
-            if (!timeSlowSpell) {
-                log::trace("TimeSlowEffect: failed to get timeslow spell");
-                return;
-            }
+            log::trace("TimeSlowEffect: failed to get timeslow spell");
+            return;
         }
         slowTimeData.timeSlowSpell = timeSlowSpell;
     }
@@ -259,10 +284,6 @@ void ZacOnFrame::TimeSlowEffect(RE::Actor* playerActor, int64_t slowFrame) {
         return;
     }
     
-    if (slowTimeData.oldMagnitude.size() > 0) {
-        log::error("TimeSlowEffect: slowTimeData.oldMagnitude.size() is not zero:{}", slowTimeData.oldMagnitude.size());
-        return;
-    }
 
     // Record spell magnitude
     if (slowTimeData.timeSlowSpell->effects.size() == 0) {
@@ -279,8 +300,6 @@ void ZacOnFrame::TimeSlowEffect(RE::Actor* playerActor, int64_t slowFrame) {
             log::trace("TimeSlowEffect: effect[{}] is null", i);
             continue;
         }
-        float oldmag = effect->effectItem.magnitude;
-        slowTimeData.oldMagnitude.push_back(oldmag); // store the existing magnitude, which are set by spell wheel
         effect->effectItem.magnitude = fTimeSlowRatio; // set our magnitude
     }
 
@@ -290,6 +309,7 @@ void ZacOnFrame::TimeSlowEffect(RE::Actor* playerActor, int64_t slowFrame) {
 }
 
 void ZacOnFrame::StopTimeSlowEffect(RE::Actor* playerActor) {
+    auto& slowTimeData = SlowTimeEffect::GetSingleton();
     if (slowTimeData.timeSlowSpell == nullptr) {
         log::error("StopTimeSlowEffect: timeslow spell is null. Doesn't make sense");
         return;
@@ -306,22 +326,6 @@ void ZacOnFrame::StopTimeSlowEffect(RE::Actor* playerActor) {
     log::trace("time slow stops", fTimeSlowRatio);
 
     // Restore the effects to the magnitude that spellwheel set
-    if (slowTimeData.timeSlowSpell->effects.size() == 0) {
-        log::error("StopTimeSlowEffect: timeslow spell has 0 effect");
-        return;
-    }
-    for (RE::BSTArrayBase::size_type i = 0; i < slowTimeData.timeSlowSpell->effects.size(); i++) {
-        auto effect = slowTimeData.timeSlowSpell->effects.operator[](i);
-        if (!effect) {
-            log::trace("StopTimeSlowEffect: effect[{}] is null", i);
-            continue;
-        }
-        if (i < slowTimeData.oldMagnitude.size() && i >= 0) {
-            effect->effectItem.magnitude = slowTimeData.oldMagnitude[i];
-        } else {
-            log::error("StopTimeSlowEffect: out of boundary. Index: {}. size:{}", i, slowTimeData.oldMagnitude.size());
-        }
-    }
 
     slowTimeData.clear();
 }
@@ -630,11 +634,12 @@ RE::hkVector4 ZacOnFrame::CalculatePushVector(RE::NiPoint3 sourcePos, RE::NiPoin
 
 // Clear every buffer before player load a save
 void ZacOnFrame::CleanBeforeLoad() { 
-    slowTimeData.clear();
+    SlowTimeEffect::GetSingleton().clear();
     iFrameCount = 0;
     iLastPressGrip = 0;
     PlayerState::GetSingleton().Clear();
     WindManager::GetSingleton().Clear();
+    ExtraLiftManager::GetSingleton().Clear();
 }
 
 

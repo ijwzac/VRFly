@@ -3,6 +3,98 @@
 
 using namespace SKSE;
 
+
+class ExtraLiftManager {
+public:
+    struct SpiritualData {
+        RE::Actor* fromWho;
+        float passByHour;
+        int64_t lastSteamSpawnPrivate;
+    };
+    int64_t lastSteamSpawnFrame;
+    std::vector<SpiritualData> vSpiritual;
+    ExtraLiftManager() : lastSteamSpawnFrame(0) {}
+
+    // Pretty typical singleton setup
+    // *Private* constructor/destructor
+    // And we *delete* the copy constructors and move constructors.
+    ~ExtraLiftManager() = default;
+    ExtraLiftManager(const ExtraLiftManager&) = delete;
+    ExtraLiftManager(ExtraLiftManager&&) = delete;
+    ExtraLiftManager& operator=(const ExtraLiftManager&) = delete;
+    ExtraLiftManager& operator=(ExtraLiftManager&&) = delete;
+
+    static ExtraLiftManager& GetSingleton() {
+        static ExtraLiftManager singleton;
+        return singleton;
+    }
+
+    void Update() {
+        // Delete spiritual data that is 12 hours ago
+        if (iFrameCount % 100 == 17) {
+            auto calendar = RE::Calendar::GetSingleton();
+            if (!calendar) {
+                log::error("Fail to get RE::Calendar");
+                return;
+            }
+            float currentHours = calendar->GetHoursPassed();
+            for (int i = 0; i < vSpiritual.size(); i++) {
+                if (currentHours - vSpiritual[i].passByHour > 12) {
+                    vSpiritual.erase(vSpiritual.begin() + i);
+                }
+            }
+        }
+
+        if (iFrameCount % 1000 == 23) log::trace("In the past 12 hours, passed {} actors", NumPassedByActorRecent());
+    }
+
+    int NumPassedByActorRecent() { return vSpiritual.size();
+    }
+
+    void AddSpiritual(RE::Actor* who, RE::Actor* player) {
+       
+        //bool shouldSpawnSteam = false;
+
+        auto calendar = RE::Calendar::GetSingleton();
+        if (!calendar) {
+            log::error("Fail to get RE::Calendar");
+            return;
+        }
+        float currentHours = calendar->GetHoursPassed();
+
+        int indexExist = -1;
+        for (int i = 0; i < vSpiritual.size(); i++) {
+            if (vSpiritual[i].fromWho == who) {
+                indexExist = i;
+                break;
+            }
+        }
+
+        if (indexExist >= 0) {
+            //shouldSpawnSteam = (iFrameCount - vSpiritual[indexExist].lastSteamSpawnPrivate) > 20 * 120;
+            vSpiritual[indexExist].lastSteamSpawnPrivate = iFrameCount;
+            vSpiritual[indexExist].passByHour = currentHours;
+        } else {
+            //shouldSpawnSteam = true;
+            vSpiritual.push_back(SpiritualData(who, currentHours, iFrameCount));
+        }
+
+        //shouldSpawnSteam = shouldSpawnSteam && (iFrameCount - lastSteamSpawnFrame > 300);
+        ////shouldSpawnSteam = (iFrameCount - lastSteamSpawnFrame) > 600;
+        //if (auto smSteam = GetSteamSm(); smSteam && shouldSpawnSteam) {
+        //    lastSteamSpawnFrame = iFrameCount;
+        //    player->PlaceObjectAtMe(
+        //        smSteam, false);  // smSteam will delete itself after 20 seconds, by our script
+        //} else {
+        //    log::error("Failed to get steam small");
+        //}
+    }
+
+    void Clear() {
+        lastSteamSpawnFrame = 0;
+    }
+};
+
 class SpeedRing {
 public:
     const RE::NiPoint3 emptyPoint = RE::NiPoint3(123.0f, 0.0f, 0.0f);
@@ -80,16 +172,37 @@ public:
     bool isSlappingWings = false;
     bool isEffectOnlyWings = false; // if wings is the one and only effect in allEffects
     bool hasWings = false;
+    bool everSetWingDirSinceThisFlight = false; // false when player just started flying and hasn't holded both grips
+    bool isSkyDiving = false;
+    bool isDragonNearby = false;
+    bool isInSpiritualLift = false;
+    bool isInWarmLift = false;
 
     int64_t lastJumpFrame = 0;
     int64_t frameLastSlap = 0;
     int64_t lastSoundFrame = 0;
+    int64_t reenableVibrateFrame = 0;
     int64_t lastOngroundFrame = 0;
+    int64_t frameShouldSlowTime = 0;   // Set in VeloEffectMain, reset in OnFrame
+    int64_t lastFlyUpFrame = 0;
+    int64_t lastNotification = 0;
+    int64_t lastSuddenTurnFrame = 0;
+    int64_t lastSpawnSteamFrame = 0;
+    RE::NiPoint3 lastAngle;
+
+    std::vector<RE::TESObjectREFR*> vNearbyFirespots;
+    std::vector<RE::Actor*> vNearbyLiving;
 
     RE::NiPoint3 dirWings = RE::NiPoint3(0.0f, 0.0f, 1.0f);  // A normalized pointer that is vertical to wings. Initialized to be pointing to the sky
 
 
-    PlayerState() : player(nullptr), setVelocity(false), speedBuf(SpeedRing(100)), recentVelo() {}
+    PlayerState()
+        : player(nullptr),
+          setVelocity(false),
+          speedBuf(SpeedRing(100)),
+          recentVelo(),
+          vNearbyFirespots(),
+          vNearbyLiving() {}
 
     void Clear() { 
         setVelocity = false;
@@ -97,14 +210,29 @@ public:
         isInMidAir = false;
         isSlappingWings = false;
         isEffectOnlyWings = false;
+        shouldCheckKnock = false;
         hasWings = false;
+        everSetWingDirSinceThisFlight = false;
+        isSkyDiving = false;
+        isDragonNearby = false;
+        isInSpiritualLift = false;
+        isInWarmLift = false;
+
         lastJumpFrame = 0;
         frameLastSlap = 0;
         lastSoundFrame = 0;
         lastOngroundFrame = 0;
+        frameShouldSlowTime = 0;
+        reenableVibrateFrame = 0;
+        lastFlyUpFrame = 0;
+        lastNotification = 0;
+        lastSuddenTurnFrame = 0;
+        lastSpawnSteamFrame = 0;
 
         speedBuf.Clear();
         recentVelo.clear();
+        vNearbyFirespots.clear();
+        vNearbyLiving.clear();
     }
 
     static PlayerState& GetSingleton() {
@@ -127,6 +255,123 @@ public:
         
 
         return singleton;
+    }
+
+    // Scan every 500 frames, search for dragons, living creatures, firespots
+    void SparseScan(float radius) {
+
+        const auto TES = RE::TES::GetSingleton();
+        if (!TES) {
+            log::error("Can't get TES");
+            return;
+        }
+        vNearbyLiving.clear();
+        vNearbyFirespots.clear();
+        bool findDragonThisScan = false;
+        // Note: verified that the ForEachReferenceInRange is not concurrent
+        //log::trace("Starting a scan at frame:{}", iFrameCount); 
+        TES->ForEachReferenceInRange(player, radius, [&](RE::TESObjectREFR& b_ref) {
+            if (b_ref.Is(RE::FormType::ActorCharacter)) {
+                auto actor = static_cast<RE::Actor*>(&b_ref);
+                auto race = actor->GetRace();
+                if (actor != player && !actor->IsDead() && !actor->IsDisabled() && actor->Is3DLoaded() &&
+                    !actor->IsDeleted()) {
+                    if (race->HasKeywordString("ActorTypeDragon"sv)) {
+                        findDragonThisScan = true;
+                    } else {
+                        if (!race->HasKeywordString("ActorTypeUndead") &&
+                            !race->HasKeywordString("ActorTypeFamiliar") && !race->HasKeywordString("ActorTypeGhost") &&
+                            !race->HasKeywordString("ActorTypeDaedra")) {
+                            //log::trace("Find a living creature at frame:{}", iFrameCount);
+                            vNearbyLiving.push_back(actor);
+                        }
+                    }
+                }
+            } else {
+                // Seems that those static are not object reference
+                //auto baseObj = b_ref.GetBaseObject();
+                //if (baseObj) {
+                //    
+                //    auto name = baseObj->GetObjectTypeName();
+                //    if (auto length = strlen(name); length > 0) {
+                //        char* lowerCaseName = new char[strlen(name) + 1];  // +1 for the null terminator
+                //        for (size_t i = 0; name[i] != '\0'; ++i) {
+                //            lowerCaseName[i] = std::tolower(static_cast<unsigned char>(name[i]));
+                //        }
+                //        lowerCaseName[strlen(name)] = '\0';
+                //        log::debug("Name:{}", lowerCaseName);
+                //        if (strstr(lowerCaseName, "house") || strstr(lowerCaseName, "smithforge") ||
+                //            (strstr(lowerCaseName, "fire") && !strstr(lowerCaseName, "firewood"))) {
+                //            vNearbyFirespots.push_back(&b_ref);
+                //        }
+                //    }
+                //}
+            }
+
+
+
+            return RE::BSContainer::ForEachResult::kContinue;
+            });
+
+        log::trace("Num of vNearbyLiving:{}", vNearbyLiving.size());
+        log::debug("Num of vNearbyFirespots:{}", vNearbyFirespots.size());
+        isDragonNearby = findDragonThisScan;
+    }
+
+    void SpawnSteamNearby(float range) {
+        auto pos = player->GetPosition();
+        auto smSteam = GetSteamSm();
+        auto lgSteam = GetSteamLg();
+        if (!smSteam || !lgSteam) {
+            log::error("Failed to get steams");
+            return;
+        }
+
+        log::debug("SpawnSteam for vNearbyLiving:{}, vNearbyFirespots:{}", vNearbyLiving.size(), vNearbyFirespots.size());
+
+
+        for (auto actor : vNearbyLiving) {
+            if (actor->Is3DLoaded()) {
+                auto posOther = actor->GetPosition();
+                auto diff = posOther - pos;
+                log::trace("Distance player and living:{}", diff.Length());
+                if (diff.Length() < range) actor->PlaceObjectAtMe(smSteam, false);
+            }
+        }
+
+        for (auto fireSpot : vNearbyFirespots) {
+            if (fireSpot->Is3DLoaded()) {
+                auto posOther = fireSpot->GetPosition();
+                auto diff = posOther - pos;
+                log::debug("Distance player and firespot:{}", diff.Length());
+                if (diff.Length() < range) fireSpot->PlaceObjectAtMe(lgSteam, false);
+            }
+        }
+    }
+
+    RE::Actor* FindActorAtFoot() { 
+        auto posX = player->GetPositionX();
+        auto posY = player->GetPositionY();
+        for (RE::Actor* actor : vNearbyLiving) {
+            auto actorPos = actor->GetPosition();
+            auto diffX = actorPos.x - posX;
+            auto diffY = actorPos.y - posY;
+            if (diffX * diffX + diffY * diffY < 160000.0f) { // about 5.6 meters
+                log::trace("Find actor at foot");
+                return actor;
+            }
+        }
+
+        return nullptr;
+    }
+
+    void UpdateAnimation() {
+        // If flyingUp animation was fired, we will replace it with another more reasonable one later
+        if (iFrameCount - lastFlyUpFrame > 500 && lastFlyUpFrame != 0) {
+            lastFlyUpFrame = 0;
+            log::trace("Play animation FootLeft");
+            player->NotifyAnimationGraph("FootLeft"sv);
+        }
     }
 
     void UpdateEquip() {
@@ -184,18 +429,58 @@ public:
         recentVelo.push_back(Quad2Velo(velocity).Length());
     }
 
+    void DetectSuddenTurn() { 
+        if (player->Is3DLoaded()) {
+            auto currentAngle = player->GetAngle();
+            static float maxZ = 0.0f;
+            static float minZ = 3.0f;
+            maxZ = currentAngle.z > maxZ ? currentAngle.z : maxZ;
+            minZ = currentAngle.z < minZ ? currentAngle.z : minZ;
+            log::trace("current angle z:{}. MaxZ:{}, MinZ:{}", currentAngle.z, maxZ, minZ);
+            const float pi = 3.14159f;
+            
+            // Note that angle 2pi and angle 0 is the same
+            float diff1 = abs(currentAngle.z - lastAngle.z);
+            float diff2 = currentAngle.z - 0.0f + (2 * pi - lastAngle.z);
+            float diff3 = lastAngle.z - 0.0f + (2 * pi - currentAngle.z);
+            float diff = fminf(fminf(diff1, diff2), diff3);
+
+            //log::trace("diff1:{}, diff2:{}, diff3:{}, diff:{}", diff1, diff2, diff3, diff);
+
+            if (diff > 0.02f) {
+                lastSuddenTurnFrame = iFrameCount;
+                if (iFrameCount - lastNotification > 240) {
+                    lastNotification = iFrameCount;
+                    log::trace("Player is turning");
+                }
+            }
+
+            lastAngle = currentAngle;
+        }
+    }
+
     void SetVelocity(float x, float y, float z) {
         velocity = RE::hkVector4(x, y, z, 0.0f);
     }
 
-    void CancelFall() {
+    void CancelFallNumber() {
          if (player->GetCharController()) {
             player->GetCharController()->fallStartHeight = 0.0f;
             player->GetCharController()->fallTime = 0.0f;
         }
     }
 
-    void UpdateWingDir(RE::NiPoint3 leftPos, RE::NiPoint3 rightPos) {
+    // Deprecated: not working
+    //void CancelFallFlag() {
+    //    if (player->GetCharController()) {
+    //        auto flag = player->GetCharController()->flags;
+
+    //        log::trace("Reset kCastingDisabled");
+    //        player->GetActorRuntimeData().boolFlags.reset(RE::Actor::BOOL_FLAGS::kCastingDisabled);
+    //    }
+    //}
+
+    float UpdateWingDir(RE::NiPoint3 leftPos, RE::NiPoint3 rightPos) {
         auto& playerSt = PlayerState::GetSingleton();
         float conf_shoulderHeight = 100.0f;
 
@@ -212,14 +497,15 @@ public:
             newDir = newDir / newDir.Length();
             if (newDir.z <= 0.2f) {
                 // We don't allow wings to be facing downwards or to be close to vertical
-                return;
+                return newDir.z;
             } else {
                 dirWings = newDir;
-                return;
+                return newDir.z;
             }
         } else {
             // Something is wrong, don't update wing dir
-            return;
+            return 0.0f;
         }
     }
 };
+

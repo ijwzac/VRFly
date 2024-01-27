@@ -27,7 +27,7 @@ namespace ZacOnFrame {
     bool FrameGetWeaponFixedPos(RE::Actor*, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&, RE::NiPoint3&);
     bool IsNiPointZero(const RE::NiPoint3&);
     RE::hkVector4 CalculatePushVector(RE::NiPoint3 sourcePos, RE::NiPoint3 targetPos, bool isEnemy, float speed);
-    void TimeSlowEffect(RE::Actor*, int64_t);
+    void TimeSlowEffect(RE::Actor*, int64_t, float);
     void StopTimeSlowEffect(RE::Actor*);
     void CleanBeforeLoad();
     
@@ -113,26 +113,38 @@ namespace ZacOnFrame {
     class SlowTimeEffect {
     public: 
         int64_t frameShouldRemove;
-        std::vector<float> oldMagnitude; 
         RE::SpellItem* timeSlowSpell;
         int64_t frameLastSlowTime; // don't allow too frequent slow time 
-        SlowTimeEffect(std::size_t cap)
-            : frameShouldRemove(-1), frameLastSlowTime(-1), oldMagnitude(cap), timeSlowSpell(nullptr) {}
+        SlowTimeEffect()
+            : frameShouldRemove(-1), frameLastSlowTime(-1),timeSlowSpell(nullptr) {}
 
-        bool shouldRemove(int64_t currentFrame) {
+        // Pretty typical singleton setup
+        // *Private* constructor/destructor
+        // And we *delete* the copy constructors and move constructors.
+        ~SlowTimeEffect() = default;
+        SlowTimeEffect(const SlowTimeEffect&) = delete;
+        SlowTimeEffect(SlowTimeEffect&&) = delete;
+        SlowTimeEffect& operator=(const SlowTimeEffect&) = delete;
+        SlowTimeEffect& operator=(SlowTimeEffect&&) = delete;
+
+        static SlowTimeEffect& GetSingleton() { 
+            static SlowTimeEffect singleton;
+            return singleton;
+        }
+
+        bool shouldRemove() {
+            log::trace("frameShouldRemove:{}", frameShouldRemove);
             if (frameShouldRemove == -1) {
                 return false;
             }
-            return frameShouldRemove <= currentFrame;
+            return frameShouldRemove <= iFrameCount;
         }
 
         void clear() { 
             frameShouldRemove = -1;
-            oldMagnitude.clear();
         }
     };
 
-    extern SlowTimeEffect slowTimeData;
 
 
     void FillShieldCenterNormal(RE::Actor* actor, RE::NiPoint3& shieldCenter, RE::NiPoint3& shieldNormal);

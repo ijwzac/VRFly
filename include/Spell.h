@@ -382,7 +382,7 @@ public:
     // Note that we don't update all effects in bufferV, so we can know which effect hasn't been updated and should be deleted
 
     Velo SumCurrentVelo() {
-        auto playerSt = PlayerState::GetSingleton();
+        auto& playerSt = PlayerState::GetSingleton();
         Velo result = Velo();
 
         // Calculate all VeloEffect
@@ -404,7 +404,7 @@ public:
         auto now = std::chrono::high_resolution_clock::now();
         float passedTime =
             ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count()) / 1000.0f;
-        float conf_maxPassedTime = 0.1f;
+        float conf_maxPassedTime = 0.05f;
         if (passedTime > conf_maxPassedTime) passedTime = conf_maxPassedTime;
         float timeSlowRatio = CurrentSpellWheelSlowRatio(playerSt.player);
         // If slowing time, passed time should be reduced
@@ -442,14 +442,32 @@ public:
                     drag = CalculateDragComplex(currentVelo);
                     lift = CalculateLift(currentVelo);
                 }
-                accumVelocity = accumVelocity + drag * passedTime + lift * passedTime;
-                log::trace("Applying gravityForce and Drag. Drag is simple:{}", playerSt.hasWings == false);
-                log::trace("Drag {}:{}, {}, {}", drag.Length(), drag.x, drag.y, drag.z);
-                log::trace("Lift {}:{}, {}, {}", lift.Length(), lift.x, lift.y, lift.z);
+                if (playerSt.isSkyDiving == false || playerSt.hasWings == false) {
+                    accumVelocity = accumVelocity + drag * passedTime + lift * passedTime;
+                    log::trace("Applying gravityForce and Drag. Drag is simple:{}", playerSt.hasWings == false);
+                    log::trace("Drag {}:{}, {}, {}", drag.Length(), drag.x, drag.y, drag.z);
+                    log::trace("Lift {}:{}, {}, {}", lift.Length(), lift.x, lift.y, lift.z);
+                } else {
+                    accumVelocity = accumVelocity + drag * passedTime * 0.7f + lift * passedTime * 0.7f;
+                    log::trace("Player is skyDiving. Drag before reduced {}:{}, {}, {}", drag.Length(), drag.x, drag.y, drag.z);
 
-                RE::NiPoint3 help = CalculateVerticalHelper(currentVelo);
-                accumVelocity = accumVelocity + help * passedTime;
-                log::trace("Vertical help force {}:{}, {}, {}", help.Length(), help.x, help.y, help.z);
+                    log::trace("Lift before reduced {}:{}, {}, {}", lift.Length(), lift.x, lift.y, lift.z);
+                }
+
+                // if player hasn't ever set wingDir since this flight, don't apply help force
+                if (playerSt.everSetWingDirSinceThisFlight && playerSt.isSkyDiving == false && playerSt.hasWings) {
+                    RE::NiPoint3 help = CalculateVerticalHelper(currentVelo);
+                    accumVelocity = accumVelocity + help * passedTime;
+                    log::trace("Vertical help force {}:{}, {}, {}", help.Length(), help.x, help.y, help.z);
+                }
+
+                // if player in spiritual lift (upon every living creature), add lift
+                if (playerSt.isInSpiritualLift && currentVelo.z > -10.0f) {
+                    float spiritualStr = 10.0f;
+                    if (currentVelo.Length() > 10.0f) spiritualStr *= 1 + (currentVelo.Length() - 10.0f) / 10.0f;
+                    accumVelocity = accumVelocity + RE::NiPoint3(0.0f, 0.0f, 10.0f) * passedTime;
+                    log::trace("Player is in spiritual lift");
+                }
             }
 
             // If on ground, reduce accumVelocity greatly, so player don't slipper on ground
@@ -466,7 +484,7 @@ public:
                                accumVelocity.z);
                 } else {
                     // weak dynamic friction
-                    accumVelocity = accumVelocity * (1.0f - passedTime / 0.5f);
+                    accumVelocity = accumVelocity * (1.0f - passedTime / 0.38f);
                     log::trace("After dynamic friction. accumVelocity:{}, {}, {}", accumVelocity.x, accumVelocity.y,
                                accumVelocity.z);
                 }
@@ -570,3 +588,5 @@ void SpellCheckMain();
 
 
 void WingsCheckMain();
+
+void PlayWingAnimation(RE::Actor* player, RE::NiPoint3 speedL, RE::NiPoint3 speedR);

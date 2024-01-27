@@ -4,11 +4,10 @@ void VeloEffectMain(Velo& vel) {
     auto& playerSt = PlayerState::GetSingleton();
 
 	// When velocity is high, occasionally create wind objects
-    auto smWind = GetWindSm();
     auto midWind = GetWindMid();
     auto lgWind = GetWindLg();
     auto exWind = GetWindEx();
-    if (!smWind || !midWind || !lgWind || !exWind) {
+    if (!midWind || !lgWind || !exWind) {
         log::error("Failed to get winds from my mod");
         return;
     }
@@ -18,12 +17,14 @@ void VeloEffectMain(Velo& vel) {
         log::trace("About to check gen wind. Velo: {}", vel.Length());
         RE::NiPointer<RE::TESObjectREFR> newWind;
         WindObj::WindType type;
-        if (vel.Length() > 30.0f && random % 2 == 0) {  //  
+        if (vel.Length() > 27.0f) {  //  
             type = WindObj::ex;
             newWind = playerSt.player->PlaceObjectAtMe(exWind, false);
-        } else if (vel.Length() > 20.0f && random % 3 == 0) {
-            type = WindObj::lg;
-            newWind = playerSt.player->PlaceObjectAtMe(lgWind, false);
+        } else if (vel.Length() > 20.0f) {
+            if (iFrameCount % 300 == 0) {
+                type = WindObj::lg;
+                newWind = playerSt.player->PlaceObjectAtMe(lgWind, false);
+            }
         } else if (vel.Length() > 5.0f) {
             // We stop using smallwind
             type = WindObj::mid;
@@ -40,7 +41,8 @@ void VeloEffectMain(Velo& vel) {
     auto midExplo = GetExploMid();
     auto lgExplo = GetExploLg();
     auto rockExplo = GetExploRock();
-    if (!smExplo || !midExplo || !lgExplo || !rockExplo) {
+    auto shockWaveSpell = GetShockWaveSpell();
+    if (!smExplo || !midExplo || !lgExplo || !rockExplo || !shockWaveSpell) {
         log::error("Failed to get explosions from my mod");
         return;
     }
@@ -55,12 +57,21 @@ void VeloEffectMain(Velo& vel) {
         log::trace("About to check gen knock. highestVel: {}", highestVel);
         if (highestVel > conf_WeakKnockThres) {
             if (highestVel > conf_StrongKnockThres) {
-                RE::DebugNotification("Massive shockwave");
                 log::trace("Creating large landing explosion");
                 playerSt.player->PlaceObjectAtMe(lgExplo, false);
-                playerSt.player->PlaceObjectAtMe(rockExplo, false);
+
+                // The spell shockWaveSpell will be removed by WindManager
+
+                if (!playerSt.player->HasSpell(shockWaveSpell)) playerSt.player->AddSpell(shockWaveSpell);
+                WindManager::GetSingleton().frameLastRockExplo = iFrameCount;
+
+                // If player is sneaking or hands position low, play slow motion effect. Superhero landing!
+                auto leftPos = GetPlayerHandPos(true, playerSt.player);
+                auto rightPos = GetPlayerHandPos(false, playerSt.player);
+                if (playerSt.player->IsSneaking() || leftPos.z < 80.0f || rightPos.z < 80.0f) {
+                    playerSt.frameShouldSlowTime = iFrameCount + 10;
+                }
             } else if (highestVel > conf_MediumKnockThres) {
-                RE::DebugNotification("Medium shockwave");
                 log::trace("Creating medium landing explosion");
                 playerSt.player->PlaceObjectAtMe(midExplo, false);
             } else {

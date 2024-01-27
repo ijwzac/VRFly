@@ -13,7 +13,7 @@ bool play_impact_3(RE::TESObjectCELL* cell, float a_lifetime, const char* model,
 bool HasShield(RE::Actor* actor);
 
 
-void vibrateController(int hapticFrame, bool isLeft);
+void vibrateController(int hapticFrame, int length, bool isLeft);
 
 std::string formatNiPoint3(RE::NiPoint3& pos);
 
@@ -44,6 +44,7 @@ RE::SpellItem* GetEmitSpell();
 RE::SpellItem* GetEmitFireSpell();
 RE::SpellItem* GetEmitForceSpell();
 RE::SpellItem* GetWingsFlagSpell();
+RE::SpellItem* GetShockWaveSpell();
 
 RE::TESGlobal* GetMyGlobal(RE::FormID partFormID);
 RE::TESGlobal* GetTriggerL();
@@ -53,7 +54,8 @@ RE::TESGlobal* GetGripR();
 
 
 RE::TESForm* GetMyForm(RE::FormID partFormID);
-RE::TESObjectACTI* GetWindSm();
+RE::TESObjectACTI* GetSteamSm();
+RE::TESObjectACTI* GetSteamLg();
 RE::TESObjectACTI* GetWindMid();
 RE::TESObjectACTI* GetWindLg();
 RE::TESObjectACTI* GetWindEx();
@@ -117,6 +119,7 @@ static RE::FormID raceWereBear = 0x1e17b;  // need to remove higher bits from ra
 static RE::FormID vampLord = 0x0283a;  // need to remove higher bits
 
 RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player);
+bool IsPlayerHandCloseToHead(RE::Actor* player);
 
 void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE::NiPoint3& posWeaponTop,
                              RE::NiNode* bone);

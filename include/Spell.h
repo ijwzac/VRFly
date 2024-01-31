@@ -25,6 +25,9 @@ public:
           considerHorizontal(false),
           valid(false) {}
 
+    float GetIdleLifetime() { return GetMyConf(fSPVeloIdleLifetime);
+    }
+
     Velo CalculateNewStable(RE::NiPoint3 newPos) {
         float conf_verticalMult = 0.25f;
         float conf_horizontalMult = 0.25f;
@@ -67,6 +70,8 @@ public:
         : valid(isValid), isLeft(isLeft) {}
 
     EmitSpell() : valid(false) {}
+
+    float GetIdleLifetime() { return GetMyConf(fSPVeloIdleLifetime); }
 
     Velo CalculateNewStable() {
         Velo result = Velo();
@@ -131,6 +136,8 @@ public:
 
     EmitForceSpell() : valid(false) {}
 
+    float GetIdleLifetime() { return GetMyConf(fSPForceIdleLifetime); }
+
     Force CalculateNewForce() {
         Force result = Force();
 
@@ -183,23 +190,29 @@ public:
 class WingSpell {
 public:
     bool valid;
-    // parameters
-    float conf_slapStrength = 20.0f; // TODO: this is a little high, while gravity is too low
 
     RE::NiPoint3 handPosL; // This is the hand pos used only by wings, not by others
     RE::NiPoint3 handPosR;
 
+    
+    std::chrono::steady_clock::time_point lastUpdate;
 
-    WingSpell(bool isValid) : valid(isValid) {}
+    WingSpell(bool isValid) : valid(isValid) {
+        lastUpdate = lastUpdate = std::chrono::high_resolution_clock::now();
+    }
 
-    WingSpell() : valid(false) {}
+    WingSpell() : valid(false) { lastUpdate = std::chrono::high_resolution_clock::now(); }
 
-    Force CalculateSlapForce(RE::NiPoint3& speedL, RE::NiPoint3& speedR) {
+    float GetIdleLifetime() {
+        return 1.0f; // as long as not 0, doesn't matter, because it's never idle unless player dispel our shout 
+    }  
+
+    Force CalculateflapForce(RE::NiPoint3& speedL, RE::NiPoint3& speedR) {
         auto& playerSt = PlayerState::GetSingleton();
         Force result = Force();
-
-        result = result - speedL * conf_slapStrength;
-        result = result - speedR * conf_slapStrength;
+        float conf_flapStrength = GetMyConf(fFlapStrength);
+        result = result - speedL * conf_flapStrength;
+        result = result - speedR * conf_flapStrength;
         
         return result;
     }
@@ -359,6 +372,12 @@ public:
         return nullptr;
     }
 
+    inline void ZeroAccumulated() {
+        accumVelocity.x = 0.0f;
+        accumVelocity.y = 0.0f;
+        accumVelocity.z = 0.0f;
+    }
+
     void DeleteEffect(VeloEffect* e) { 
         for (std::size_t i = 0; i < capacityV; i++) {
             if (bufferV[i] == e) {
@@ -404,11 +423,16 @@ public:
         auto now = std::chrono::high_resolution_clock::now();
         float passedTime =
             ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count()) / 1000.0f;
-        float conf_maxPassedTime = 0.05f;
+        float conf_maxPassedTime = 0.05f; // 20fps
         if (passedTime > conf_maxPassedTime) passedTime = conf_maxPassedTime;
-        float timeSlowRatio = CurrentSpellWheelSlowRatio(playerSt.player);
+
+        float timeSlowSWRatio = CurrentSpellWheelSlowRatio(playerSt.player);
         // If slowing time, passed time should be reduced
-        if (timeSlowRatio < 0.9f) passedTime *= timeSlowRatio;
+        if (timeSlowSWRatio < 0.9f) passedTime *= timeSlowSWRatio;
+
+        float timeSlowRatioMine = CurrentMyTimeSlowRatio(playerSt.player);
+        // If slowing time, passed time should be reduced
+        if (timeSlowRatioMine < 0.9f && timeSlowSWRatio > 0.9f) passedTime *= timeSlowRatioMine;
 
         bool noForceEffect = true;
         bool seenSpell = false;
@@ -461,11 +485,19 @@ public:
                     log::trace("Vertical help force {}:{}, {}, {}", help.Length(), help.x, help.y, help.z);
                 }
 
+                // if player is in fire lift (upon fire), add strong lift
+                if (playerSt.isInFireLift && currentVelo.z > -10.0f) {
+                    float fireStr = 10.0f;
+                    if (currentVelo.Length() > 10.0f) fireStr *= 1 + (currentVelo.Length() - 10.0f) / 20.0f;
+                    accumVelocity = accumVelocity + RE::NiPoint3(0.0f, 0.0f, fireStr) * passedTime;
+                    log::trace("Player is in fire lift");
+                }
+
                 // if player in spiritual lift (upon every living creature), add lift
                 if (playerSt.isInSpiritualLift && currentVelo.z > -10.0f) {
-                    float spiritualStr = 10.0f;
-                    if (currentVelo.Length() > 10.0f) spiritualStr *= 1 + (currentVelo.Length() - 10.0f) / 10.0f;
-                    accumVelocity = accumVelocity + RE::NiPoint3(0.0f, 0.0f, 10.0f) * passedTime;
+                    float spiritualStr = 6.0f;
+                    if (currentVelo.Length() > 10.0f) spiritualStr *= 1 + (currentVelo.Length() - 10.0f) / 20.0f;
+                    accumVelocity = accumVelocity + RE::NiPoint3(0.0f, 0.0f, spiritualStr) * passedTime;
                     log::trace("Player is in spiritual lift");
                 }
             }
@@ -558,11 +590,16 @@ public:
     // TODO: finish this
     void DeleteIdleEffects() {
         auto now = std::chrono::high_resolution_clock::now();
-        float conf_IdleDeadline = 0.5f;
         for (auto e : bufferV) {
             if (e) {
                 float passedTime =
                     ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - e->lastUpdate).count()) / 1000.0f;
+                float conf_IdleDeadline(1.0f);
+                if (e->emitSpell.valid) {
+                    conf_IdleDeadline = e->emitSpell.GetIdleLifetime();
+                } else if (e->xyzSpell.valid) {
+                    conf_IdleDeadline = e->xyzSpell.GetIdleLifetime();
+                }
                 if (passedTime > conf_IdleDeadline) {
                     delete e->velo;
                     DeleteEffect(e);
@@ -571,6 +608,12 @@ public:
         }
         for (auto e : bufferF) {
             if (e) {
+                float conf_IdleDeadline(1.0f);
+                if (e->emitForceSpell.valid) {
+                    conf_IdleDeadline = e->emitForceSpell.GetIdleLifetime();
+                } else if (e->wingSpell.valid) {
+                    conf_IdleDeadline = e->wingSpell.GetIdleLifetime();
+                }
                 float passedTime =
                     ((float)std::chrono::duration_cast<std::chrono::milliseconds>(now - e->lastUpdate).count()) /
                     1000.0f;

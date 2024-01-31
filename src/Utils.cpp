@@ -279,6 +279,27 @@ RE::SpellItem* GetShockWaveSpell() {
     }
     return s;
 }
+RE::SpellItem* GetSpiritualLiftEffSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x02E16B);
+    }
+    return s;
+}
+RE::SpellItem* GetHeatLiftEffSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x02E16E);
+    }
+    return s;
+}
+RE::SpellItem* GetFlapStaRegenEffSpell() {
+    static RE::SpellItem* s;
+    if (!s) {
+        s = GetMySpell(0x039C99);
+    }
+    return s;
+}
 // no fall damage perk 183C
 
 
@@ -439,6 +460,20 @@ RE::BGSExplosion* GetExploRock() {
     return g;
 }
 
+RE::BGSListForm* GetHeatSourceFire() {
+    static RE::BGSListForm* g;
+    if (!g) {
+        g = static_cast<RE::BGSListForm*>(GetMyForm(0x0283B3));
+    }
+    return g;
+}
+RE::BGSListForm* GetHeatSourceFirepit() {
+    static RE::BGSListForm* g;
+    if (!g) {
+        g = static_cast<RE::BGSListForm*>(GetMyForm(0x0283B1));
+    }
+    return g;
+}
 
 // From: https://github.com/fenix31415/UselessFenixUtils
 void play_sound(RE::TESObjectREFR* object, RE::FormID formid, float volume) {
@@ -663,6 +698,29 @@ RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player) {
     return result;
 }
 
+RE::NiPoint3 GetPlayerHmdPos(RE::Actor* player) {
+    auto playerCh = RE::PlayerCharacter::GetSingleton();
+    if (!playerCh) {
+        log::error("Can't get player!");
+    }
+    auto vrData = playerCh->GetVRNodeData();
+    const auto baseNode = vrData->UprightHmdNode;
+
+    RE::NiPoint3 pos;
+    if (baseNode) {
+        pos = baseNode->world.translate - player->GetPosition();
+        
+    } else {
+        log::warn("GetPlayerHmdPos:Fail to get player node");
+        return RE::NiPoint3();
+    }
+
+    //log::trace("Diff between hmdNode and player pos {}:{}, {}, {}", pos.Length(), pos.x, pos.y, pos.z);
+
+
+    return pos;
+}
+
 
 bool IsPlayerHandCloseToHead(RE::Actor* player) {
     auto playerCh = RE::PlayerCharacter::GetSingleton();
@@ -679,9 +737,11 @@ bool IsPlayerHandCloseToHead(RE::Actor* player) {
         auto diffR = weaponR->world.translate - baseNode->world.translate;
 
         if (diffL.Length() < 20.0f || diffR.Length() < 20.0f) return true;
+    } else {
+        log::warn("IsPlayerHandCloseToHead: Fail to get player node");
     }
 
-    log::warn("IsPlayerHandCloseToHead:Fail to get player node for ");
+    
     return false;
 }
 
@@ -717,7 +777,7 @@ float CurrentSpellWheelSlowRatio(RE::Actor* player) {
     for (RE::BSTArrayBase::size_type i = 0; i < timeSlowSpell->effects.size(); i++) {
         auto effect = timeSlowSpell->effects.operator[](i);
         if (!effect) {
-            log::trace("TimeSlowEffect: effect[{}] is null", i);
+            log::trace("Spell Wheel TimeSlowEffect: effect[{}] is null", i);
             continue;
         }
         ratio = effect->effectItem.magnitude;
@@ -727,6 +787,33 @@ float CurrentSpellWheelSlowRatio(RE::Actor* player) {
     return ratio;
 }
 
+float CurrentMyTimeSlowRatio(RE::Actor* player) {
+    float ratio = 1.0f;
+    static RE::SpellItem* timeSlowSpell;
+    if (!timeSlowSpell) {
+        timeSlowSpell = GetTimeSlowSpell_Mine();
+        if (!timeSlowSpell) {
+            log::warn("Can't find time slow spell from spellwheel");
+            return ratio;
+        }
+    }
+
+    if (!player->HasSpell(timeSlowSpell)) {
+        return ratio;
+    }
+
+    for (RE::BSTArrayBase::size_type i = 0; i < timeSlowSpell->effects.size(); i++) {
+        auto effect = timeSlowSpell->effects.operator[](i);
+        if (!effect) {
+            log::trace("My TimeSlowEffect: effect[{}] is null", i);
+            continue;
+        }
+        ratio = effect->effectItem.magnitude;
+        // log::trace("Magnitude: {}", ratio);
+    }
+
+    return ratio;
+}
 // Get a float conf that is stored in a TESGlobal
 float GetFConf(FConf name) {
     static RE::TESGlobal* g;

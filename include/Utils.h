@@ -45,6 +45,9 @@ RE::SpellItem* GetEmitFireSpell();
 RE::SpellItem* GetEmitForceSpell();
 RE::SpellItem* GetWingsFlagSpell();
 RE::SpellItem* GetShockWaveSpell();
+RE::SpellItem* GetSpiritualLiftEffSpell();
+RE::SpellItem* GetHeatLiftEffSpell();
+RE::SpellItem* GetFlapStaRegenEffSpell();
 
 RE::TESGlobal* GetMyGlobal(RE::FormID partFormID);
 RE::TESGlobal* GetTriggerL();
@@ -65,6 +68,9 @@ RE::BGSExplosion* GetExploSm();
 RE::BGSExplosion* GetExploMid();
 RE::BGSExplosion* GetExploLg();
 RE::BGSExplosion* GetExploRock();
+
+RE::BGSListForm* GetHeatSourceFire();
+RE::BGSListForm* GetHeatSourceFirepit();
 
 // From: https://github.com/fenix31415/UselessFenixUtils
 void play_sound(RE::TESObjectREFR* object, RE::FormID formid, float volume);
@@ -119,6 +125,8 @@ static RE::FormID raceWereBear = 0x1e17b;  // need to remove higher bits from ra
 static RE::FormID vampLord = 0x0283a;  // need to remove higher bits
 
 RE::NiPoint3 GetPlayerHandPos(bool isLeft, RE::Actor* player);
+RE::NiPoint3 GetPlayerHmdPos(RE::Actor* player);
+
 bool IsPlayerHandCloseToHead(RE::Actor* player);
 
 void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE::NiPoint3& posWeaponTop,
@@ -127,6 +135,8 @@ void debug_show_weapon_range(RE::Actor* actor, RE::NiPoint3& posWeaponBottom, RE
 RE::NiPoint3 Quad2Velo(RE::hkVector4& a_velocity);
 
 float CurrentSpellWheelSlowRatio(RE::Actor* player);
+
+float CurrentMyTimeSlowRatio(RE::Actor* player);
 
 // Get a float conf that is stored in a TESGlobal
 float GetFConf(FConf name);

@@ -136,30 +136,31 @@ void SpellCheckMain() {
 Force CalculateDragSimple(RE::NiPoint3& currentVelo) {
     float conf_dragcoefficient = 0.03f;
     auto f1 = currentVelo * currentVelo.Length() * conf_dragcoefficient * -1.0f;
-    log::trace("f1: {}, {}, {}", f1.x, f1.y, f1.z);
+    log::trace("Drag f1: {}, {}, {}", f1.x, f1.y, f1.z);
     return Force(f1.x, f1.y, f1.z);
 }
 
 // CalculateDragComplex calculates drag by the velocity and player's wings direction
 Force CalculateDragComplex(RE::NiPoint3& currentVelo) {
     auto& playerSt = PlayerState::GetSingleton();
-    float conf_maxDrag = 5.0f;
+    float conf_multiDrag = GetMyConf(fMultiDrag);
+    float conf_maxDrag = GetMyConf(fMaxDrag) * conf_multiDrag;
 
     // Drag's first part is still opposite to velocity, but smaller
-    float conf_dragcoefficient1 = 0.01; 
+    float conf_dragcoefficient1 = 0.01 * conf_multiDrag; 
     auto f1 = currentVelo * currentVelo.Length() * conf_dragcoefficient1 * -1.0f;
-    log::trace("f1: {}, {}, {}", f1.x, f1.y, f1.z);
+    log::trace("Drag f1: {}, {}, {}", f1.x, f1.y, f1.z);
 
 
     // Drag's second part is the Dot product of (-velocity) and wings direction, in the direction of wings direction
-    float conf_dragcoefficient2 = 0.015; 
+    float conf_dragcoefficient2 = 0.01 * conf_multiDrag; 
     RE::NiPoint3 f2;
     if (playerSt.dirWings.Length() != 0.0f) {
-        f2 = playerSt.dirWings / playerSt.dirWings.Length() * currentVelo.Dot(playerSt.dirWings) *
+        f2 = playerSt.dirWings * currentVelo.Dot(playerSt.dirWings) *
              currentVelo.Length() *
                   conf_dragcoefficient2 * -1.0f;
     }
-    log::trace("f2: {}, {}, {}", f2.x, f2.y, f2.z);
+    log::trace("Drag f2: {}, {}, {}", f2.x, f2.y, f2.z);
 
     auto f = f1 + f2;
     if (f.Length() > conf_maxDrag) f = f / f.Length() * conf_maxDrag;
@@ -171,21 +172,32 @@ Force CalculateDragComplex(RE::NiPoint3& currentVelo) {
 Force CalculateLift(RE::NiPoint3& currentVelo) {
     auto& playerSt = PlayerState::GetSingleton();
 
-    float conf_maxLift = 11.0f;
-    float conf_maxLiftZ = 11.0f;
-    float conf_veloMaintainEffect = 0.2f; // when 1.0, completely reduce part of force that slows player down
+    float conf_multiLiftXY = GetMyConf(fMultiLiftXY);
+    float conf_multiLiftZ = GetMyConf(fMultiLiftZ);
+    float conf_maxLiftXY = GetMyConf(fMaxLiftXY) * conf_multiLiftXY;
+    float conf_maxLiftZ = GetMyConf(fMaxLiftZ) * conf_multiLiftZ;
+    float conf_veloMaintainEffect =
+        GetMyConf(fLiftMaintainer);  // set to 0.4 now. when 1.0, completely reduce part of force that slows player down
 
     // Lift is in the direction of wings direction. Lift = coefficient * v^2 
-    float conf_liftcoefficient = 0.07f;
+    float conf_liftquadcoef = GetMyConf(fLiftQuadCoef) * pow(conf_multiLiftZ, 0.333f) * pow(conf_multiLiftXY, 0.666f);
+    float conf_liftlinearcoef = GetMyConf(fLiftLinearCoef) * pow(conf_multiLiftZ, 0.333f) * pow(conf_multiLiftXY, 0.666f);
     RE::NiPoint3 f;
     if (playerSt.dirWings.Length() != 0.0f) {
         auto speed = currentVelo.Length();
-        f = playerSt.dirWings / playerSt.dirWings.Length() * speed * speed * conf_liftcoefficient;
+        auto f_quad = playerSt.dirWings * speed * speed * conf_liftquadcoef;
+        auto f_linear = playerSt.dirWings * speed * conf_liftlinearcoef;
+        f = f_quad + f_linear;
+        log::debug("Lift linear part {}: {}, {}, {}", f_linear.Length(), f_linear.x, f_linear.y, f_linear.z);
+        log::debug("Lift quad part {}: {}, {}, {}", f_quad.Length(), f_quad.x, f_quad.y, f_quad.z);
     }
 
     
-
-    if (f.Length() > conf_maxLift) f = f / f.Length() * conf_maxLift;
+    float xyMagni = sqrt(f.x * f.x + f.y * f.y);
+    if (xyMagni > conf_maxLiftXY) {
+        f.x = f.x / xyMagni * conf_maxLiftXY;
+        f.y = f.y / xyMagni * conf_maxLiftXY;
+    }
     if (f.z > conf_maxLiftZ) f.z = conf_maxLiftZ;
     if (f.x * currentVelo.x < 0.0f) {
         f.x *= (1 - conf_veloMaintainEffect);
@@ -201,11 +213,12 @@ Force CalculateLift(RE::NiPoint3& currentVelo) {
 // and the force is in the same plane formed by velocity and the middle of player's hands
 // This force helps velocity to fastly turn to where player's hands point, while conserve the energy
 Force CalculateVerticalHelper(RE::NiPoint3& currentVelo) {
-    float conf_helpCoefficient = 0.3f;
-    float conf_maxHelp = 7.0f;
+    float conf_multiHelp = GetMyConf(fMultiHelper);
+    float conf_helpCoefficient = 0.3f * conf_multiHelp;
+    float conf_maxHelp = GetMyConf(fMaxHelper) * conf_multiHelp;
 
     auto& playerSt = PlayerState::GetSingleton();
-    float conf_shoulderHeight = 100.0f;
+    float conf_shoulderHeight = GetMyConf(fShoulderHeight) / 1.4f;
 
     RE::NiPoint3 force = RE::NiPoint3(0.0f, 0.0f, 0.0f);
 
@@ -256,12 +269,53 @@ Force CalculateVerticalHelper(RE::NiPoint3& currentVelo) {
     return force;
 }
 
+// 1 - spiritual lift, 2 - heat lift
+void CastLiftEffectSpell(int typeSpell) {
+    auto& playerSt = PlayerState::GetSingleton();
+    if (iFrameCount - playerSt.lastVisualEffect > 120) {
+        playerSt.lastVisualEffect = iFrameCount;
+        auto spiritualLiftSP = GetSpiritualLiftEffSpell();
+        auto heatLiftSP = GetHeatLiftEffSpell();
+        if (spiritualLiftSP && heatLiftSP) {
+            if (auto castSource = playerSt.player->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
+                castSource) {
+                switch (typeSpell) { 
+                case 1: {
+                        castSource->CastSpellImmediate(spiritualLiftSP, false, playerSt.player, 1.0f, false, 0.0f,
+                                                       playerSt.player);
+                        log::debug("Casting spiritual lift effect spell on player");
+                        break;
+                }
+                        
+                case 2: {
+                    castSource->CastSpellImmediate(heatLiftSP, false, playerSt.player, 1.0f, false, 0.0f,
+                                                    playerSt.player);
+                    log::debug("Casting heat lift effect spell on player");
+                    break;
+                }
+                default: {
+                    log::error("Unknown type of effect spell:{}", typeSpell);
+                }
+                }
+                
+                // Hit shader considers: animalally, argonianheal, damagehealthfxs
+                // TODO: for wings shout, use dragonholes series,
+                log::debug("Casting lift effect spell on player");
+            } else {
+                log::error("Fail to obtain player magic caster kInstant");
+            }
+        } else {
+            log::error("Fail to get spiritual or heat lift eff spell");
+        }
+    }
+}
+
 // WingsCheckMain updates player's wings status
 void WingsCheckMain() {
     auto& playerSt = PlayerState::GetSingleton();
     auto player = playerSt.player;
     auto spellWingsFlag = GetWingsFlagSpell();
-    playerSt.isSlappingWings = false;
+    playerSt.isflappingWings = false;
     if (!spellWingsFlag) {
         log::error("Didn't find spellWingsFlag! Return from WingsCheckMain");
         return;
@@ -279,13 +333,18 @@ void WingsCheckMain() {
 
 
     // Player can put one hand to forehead to see nearby lifting stuff
-    if (iFrameCount - playerSt.lastSpawnSteamFrame > 400 && iFrameCount % 100 != 17) { // don't run at the same frame as normal sparse scan
+    if (iFrameCount - playerSt.lastSpawnSteamFrame > 400 &&
+        iFrameCount % 10 != 7) {  // don't run at the same frame as normal sparse scan
         if (IsPlayerHandCloseToHead(player)) {
             RE::DebugNotification("Visualizing lifting wind");
             playerSt.lastSpawnSteamFrame = iFrameCount;
-            playerSt.SparseScan(6000.0f);
-            playerSt.SpawnSteamNearby(6000.0f);
-        } 
+            auto now = std::chrono::high_resolution_clock::now();
+            playerSt.SparseScan(5000.0f, false);
+            playerSt.SpawnSteamNearby(5000.0f);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - now);
+            log::info("Visualizing lift wind takes:{} us", duration.count());
+        }
     }
 
     
@@ -293,18 +352,26 @@ void WingsCheckMain() {
     if (playerSt.isInMidAir) {
         auto uponActor = playerSt.FindActorAtFoot();
         if (uponActor) {
+            playerSt.isInSpiritualLift = true;
             ExtraLiftManager::GetSingleton().AddSpiritual(uponActor, player);
-            if (iFrameCount - playerSt.lastNotification > 240) {
+            /*if (iFrameCount - playerSt.lastNotification > 240) {
                 playerSt.lastNotification = iFrameCount;
                 auto name = uponActor->GetDisplayFullName();
                 char message[256];
                 std::sprintf(message, "Spiritual lift from %s", name);
                 RE::DebugNotification(message);
-                playerSt.isInSpiritualLift = true;
-            }
+            }*/
+            CastLiftEffectSpell(1);
         } else {
             playerSt.isInSpiritualLift = false;
+        }
 
+        auto uponFire = playerSt.FindFirespotAtFoot();
+        if (uponFire) {
+            playerSt.isInFireLift = true;
+            CastLiftEffectSpell(2);
+        } else {
+            playerSt.isInFireLift = false;
         }
     }
 
@@ -345,9 +412,9 @@ void WingsCheckMain() {
 
 
     // Update hand pos that's gonna used in calculations related to wings
-    // But only when player is not slapping wings and not recently slapped wings
-    if (playerSt.isSlappingWings == false &&
-        (iFrameCount - playerSt.frameLastSlap > 20 || iFrameCount - playerSt.frameLastSlap < 0)) {
+    // But only when player is not flapping wings and not recently flapped wings
+    if (playerSt.isflappingWings == false &&
+        (iFrameCount - playerSt.frameLastflap > 20 || iFrameCount - playerSt.frameLastflap < 0)) {
         eff->wingSpell.UpdateHandPos();
     }
 
@@ -356,96 +423,136 @@ void WingsCheckMain() {
     auto speedR = playerSt.speedBuf.GetVelocity(5, false);
     log::trace("Player controller speedL: {}, {}, {}", speedL.x, speedL.y, speedL.z);
     log::trace("Player controller speedR: {}, {}, {}", speedR.x, speedR.y, speedR.z);
-    float conf_slapThres = 1.0f;
+    float conf_flapThres = GetMyConf(fFlapThres);
 
-    
-    if ((speedL.Length() > conf_slapThres || speedR.Length() > conf_slapThres) && iFrameCount - playerSt.lastSuddenTurnFrame > 8) {
+    const float conf_flapCountDown = 2.0f;
+    static float flapCountDown =
+        conf_flapCountDown;  // You need to start flapping and count down 1 frames before actual flapping
+    // We take extra care since this is important: We speed up the countdown if the framerate is too low
+    if ((speedL.Length() > conf_flapThres || speedR.Length() > conf_flapThres) && iFrameCount - playerSt.lastSuddenTurnFrame > 8) {
         // Case 1: player is moving controllers fast, and also not turning. Set force based on controller speed
+        // Need to count down for a little while
         playerSt.isSkyDiving = false;
         skyDivingCountDown = 20;
 
-        Force newForce;
-        newForce = eff->wingSpell.CalculateSlapForce(speedL, speedR);
-        eff->force = newForce;
-        log::trace("Mod force from Wings to: {}, {}, {}", newForce.x, newForce.y, newForce.z);
-
-        // Only update dirWings if this is the first frame player starts slapping
-        if (playerSt.isSlappingWings == false) {
-            playerSt.UpdateWingDir(eff->wingSpell.handPosL, eff->wingSpell.handPosR);
+        auto now = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - eff->wingSpell.lastUpdate);
+        eff->wingSpell.lastUpdate = now;
+        if (duration.count() >= 9 && duration.count() < 50) { //  means lower than 110fps and higher than 20fps.
+            flapCountDown -= 1.0f * ((float) duration.count()) / 8.333f;
+        } else if (duration.count() >= 50 && duration.count() < 1000){
+            // case 2: lower than 20fps. We just reset count down
+            flapCountDown = conf_flapCountDown;
+        } else if (duration.count() >= 1000) {  // this is the first frame of flap. Minus 1 
+            flapCountDown -= 1.0f;
+        } else if (duration.count() < 9) { //  120fps, fine
+            flapCountDown -= 1.0f;
         }
+        log::debug("flapCountDown:{}", flapCountDown);
 
-        // play sound
-        static int playSoundWaitCount;
-        if (iFrameCount - playerSt.lastSoundFrame > 90) {
-            bool mustPlay = false;
-            if (playSoundWaitCount >= 15) {
-                mustPlay = true;
-                playSoundWaitCount = 0;
-            }
-            float handSpeed = speedL.Length() > speedR.Length() ? speedL.Length() : speedR.Length();
+        bool hasEnoughStamina;
+        if (player->AsActorValueOwner()) {
+            auto current = player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kStamina);
+            hasEnoughStamina = current > 10.0f;
+        }
+        
+        if (flapCountDown <= 0.0f && hasEnoughStamina) {
+            Force newForce;
+            newForce = eff->wingSpell.CalculateflapForce(speedL, speedR);
+            eff->force = newForce;
+            log::trace("Mod force from Wings to: {}, {}, {}", newForce.x, newForce.y, newForce.z);
 
-            auto player = playerSt.player;
-            RE::FormID sound;
-            float volume = 2.0f;
-            if (iFrameCount - playerSt.lastOngroundFrame < 10 && handSpeed > 1.5f) {
-                //NPCDragonTakeoffFXSD
-                sound = 0x3E5D8;
-            } else if (handSpeed > 1.5f) {
-                //NPCDragonWingFlapTakeoffSD
-                volume = 2.5f;
-                sound = 0x3D122;
+            // Adds to accumulatedStamCost. Let PlayerState decide if it's time to really add cost
+            playerSt.AddStaminaCost((int) duration.count());
+
+            // Reduce player stamina regen
+            if (auto spRegen = GetFlapStaRegenEffSpell(); spRegen) {
+                if (!player->HasSpell(spRegen) && playerSt.isInMidAir) {
+                    log::debug("Adding damage regen spell to player");
+                    player->AddSpell(spRegen);
+                }
             } else {
-                // NPCDragonWingFlapSD
-                volume = 2.5f;
-                sound = 0x3CE00;
+                log::error("Can't get damage sta regen spell");
             }
-            if (mustPlay) {
-                PlayWingAnimation(playerSt.player, speedL, speedR);
 
-                if (iFrameCount >= playerSt.reenableVibrateFrame) {
-                    vibrateController(speedL.Length() * 5, 70000, true);
-                    vibrateController(speedR.Length() * 5, 70000, false);
-                    playerSt.reenableVibrateFrame = iFrameCount + 70 / 8;  // 70 is ms, 8 is ms/frame
+            // Only update dirWings if this is the first frame player starts flapping
+            if (playerSt.isflappingWings == false) {
+                playerSt.UpdateWingDir(eff->wingSpell.handPosL, eff->wingSpell.handPosR);
+            }
+
+            // play sound
+            static int playSoundWaitCount;
+            if (iFrameCount - playerSt.lastSoundFrame > 90) {
+                bool mustPlay = false;
+                if (playSoundWaitCount >= 15) {
+                    mustPlay = true;
+                    playSoundWaitCount = 0;
+                }
+                float handSpeed = speedL.Length() > speedR.Length() ? speedL.Length() : speedR.Length();
+
+                auto player = playerSt.player;
+                RE::FormID sound;
+                float volume = 2.0f;
+                if (iFrameCount - playerSt.lastOngroundFrame < 10 && handSpeed > 1.5f) {
+                    // NPCDragonTakeoffFXSD
+                    sound = 0x3E5D8;
+                } else if (handSpeed > 1.5f) {
+                    // NPCDragonWingFlapTakeoffSD
+                    volume = 2.5f;
+                    sound = 0x3D122;
+                } else {
+                    // NPCDragonWingFlapSD
+                    volume = 2.5f;
+                    sound = 0x3CE00;
+                }
+                if (mustPlay) {
+                    PlayWingAnimation(playerSt.player, speedL, speedR);
+
+                    if (iFrameCount >= playerSt.reenableVibrateFrame) {
+                        vibrateController(speedL.Length() * 5, 70000, true);
+                        vibrateController(speedR.Length() * 5, 70000, false);
+                        playerSt.reenableVibrateFrame = iFrameCount + 70 / 8;  // 70 is ms, 8 is ms/frame
+                    }
+
+                    playerSt.lastSoundFrame = iFrameCount;
+                    SKSE::GetTaskInterface()->AddTask([player, sound, volume]() { play_sound(player, sound, volume); });
+
+                } else if (sound == 0x3E5D8) {
+                    PlayWingAnimation(playerSt.player, speedL, speedR);
+
+                    // Try to play wing animation
+                    playerSt.player->NotifyAnimationGraph("eFlyingUp"sv);
+                    if (iFrameCount >= playerSt.reenableVibrateFrame) {
+                        vibrateController(speedL.Length() * 7, 100000, true);
+                        vibrateController(speedR.Length() * 7, 100000, false);
+                        playerSt.reenableVibrateFrame = iFrameCount + 100 / 8;  // number is ms, 8 is ms/frame
+                    }
+
+                    playerSt.lastSoundFrame = iFrameCount;
+                    SKSE::GetTaskInterface()->AddTask([player, sound, volume]() { play_sound(player, sound, volume); });
+                } else {
+                    // Don't play, let wait to see if in the next 15 frames we can trigger
                 }
 
-
-                playerSt.lastSoundFrame = iFrameCount;
-                SKSE::GetTaskInterface()->AddTask([player, sound, volume]() { play_sound(player, sound, volume); });
-            
-            } else if (sound == 0x3E5D8) {
-                PlayWingAnimation(playerSt.player, speedL, speedR);
-
-                // Try to play wing animation
-                playerSt.player->NotifyAnimationGraph("eFlyingUp"sv);
-                if (iFrameCount >= playerSt.reenableVibrateFrame) {
-                    vibrateController(speedL.Length() * 7, 100000, true);
-                    vibrateController(speedR.Length() * 7, 100000, false);
-                    playerSt.reenableVibrateFrame = iFrameCount + 100 / 8;  // number is ms, 8 is ms/frame
-                }
-
-
-                playerSt.lastSoundFrame = iFrameCount;
-                SKSE::GetTaskInterface()->AddTask([player, sound, volume]() { play_sound(player, sound, volume); });
-            } else {
-                // Don't play, let wait to see if in the next 15 frames we can trigger 
+                playSoundWaitCount++;
             }
 
-            playSoundWaitCount++;
+            playerSt.isflappingWings = true;
+            playerSt.frameLastflap = iFrameCount;
+            playerSt.lastFlap = now;
         }
 
-
-        playerSt.isSlappingWings = true;
-        playerSt.frameLastSlap = iFrameCount;
+       
     } else {
         // Case 2: player is moving controllers slow. This changes their wing direction
         playerSt.everSetWingDirSinceThisFlight = true;
-
+        flapCountDown = conf_flapCountDown;
         
         if (iFrameCount >= playerSt.reenableVibrateFrame) {
             if (speedL.Length() > 0.2f)
-                vibrateController(1, 800, true);
+                //vibrateController(1, 800, true);
             if (speedR.Length() > 0.2f)
-                vibrateController(1, 800, false);
+                //vibrateController(1, 800, false);
             playerSt.reenableVibrateFrame = iFrameCount + 8;
         }
 
@@ -453,7 +560,7 @@ void WingsCheckMain() {
         log::trace("Change wings direction to: {}, {}, {}", playerSt.dirWings.x, playerSt.dirWings.y,
                    playerSt.dirWings.z);
 
-        bool conf_skyDiving = true;
+        bool conf_skyDiving = GetMyBoolConf(bEnableSkydiving);
         if (conf_skyDiving && wingDirZ < 0.0f) {
             skyDivingCountDown--;
             if (skyDivingCountDown == 0) playerSt.isSkyDiving = true;

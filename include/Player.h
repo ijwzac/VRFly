@@ -167,19 +167,22 @@ public:
     RE::hkVector4 velocity;
     std::vector<float> recentVelo;
 
+    float accumulatedStamCost = 0.0f;
+
     bool isInMidAir = false; // Updated by HookSetVelocity, not OnFrame
     bool shouldCheckKnock = false;  // Set true in HookSetVelocity, set false in OnFrame
-    bool isSlappingWings = false;
+    bool isflappingWings = false;
     bool isEffectOnlyWings = false; // if wings is the one and only effect in allEffects
     bool hasWings = false;
     bool everSetWingDirSinceThisFlight = false; // false when player just started flying and hasn't holded both grips
     bool isSkyDiving = false;
     bool isDragonNearby = false;
     bool isInSpiritualLift = false;
-    bool isInWarmLift = false;
+    bool isInFireLift = false;
 
     int64_t lastJumpFrame = 0;
-    int64_t frameLastSlap = 0;
+    int64_t frameLastflap = 0;
+    std::chrono::steady_clock::time_point lastFlap;
     int64_t lastSoundFrame = 0;
     int64_t reenableVibrateFrame = 0;
     int64_t lastOngroundFrame = 0;
@@ -188,10 +191,18 @@ public:
     int64_t lastNotification = 0;
     int64_t lastSuddenTurnFrame = 0;
     int64_t lastSpawnSteamFrame = 0;
+    int64_t lastVisualEffect = 0;
     RE::NiPoint3 lastAngle;
 
     std::vector<RE::TESObjectREFR*> vNearbyFirespots;
     std::vector<RE::Actor*> vNearbyLiving;
+
+    struct DelaySpawn {
+        int64_t shouldSpawnFrame;
+        RE::TESObjectREFR* atWhat;
+        RE::TESObjectACTI* spawned;
+    };
+    std::vector<DelaySpawn> vDelaySpawn;
 
     RE::NiPoint3 dirWings = RE::NiPoint3(0.0f, 0.0f, 1.0f);  // A normalized pointer that is vertical to wings. Initialized to be pointing to the sky
 
@@ -202,13 +213,14 @@ public:
           speedBuf(SpeedRing(100)),
           recentVelo(),
           vNearbyFirespots(),
-          vNearbyLiving() {}
+          vNearbyLiving(),
+          vDelaySpawn() {}
 
     void Clear() { 
         setVelocity = false;
         velocity = RE::NiPoint3();
         isInMidAir = false;
-        isSlappingWings = false;
+        isflappingWings = false;
         isEffectOnlyWings = false;
         shouldCheckKnock = false;
         hasWings = false;
@@ -216,10 +228,10 @@ public:
         isSkyDiving = false;
         isDragonNearby = false;
         isInSpiritualLift = false;
-        isInWarmLift = false;
+        isInFireLift = false;
 
         lastJumpFrame = 0;
-        frameLastSlap = 0;
+        frameLastflap = 0;
         lastSoundFrame = 0;
         lastOngroundFrame = 0;
         frameShouldSlowTime = 0;
@@ -228,6 +240,7 @@ public:
         lastNotification = 0;
         lastSuddenTurnFrame = 0;
         lastSpawnSteamFrame = 0;
+        lastVisualEffect = 0;
 
         speedBuf.Clear();
         recentVelo.clear();
@@ -257,16 +270,40 @@ public:
         return singleton;
     }
 
-    // Scan every 500 frames, search for dragons, living creatures, firespots
-    void SparseScan(float radius) {
+    void AddStaminaCost(int msElapsed) { 
+        auto costPerSec = GetMyConf(fFlapStaminaCost) * GetMyConf(fMultiFlapStaminaCost);
+        if (msElapsed > 50) {
+            // fps too low, just add once
+            accumulatedStamCost += costPerSec * 50.0f / 1000.0f;
+        } else {
+            accumulatedStamCost += costPerSec * msElapsed / 1000.0f;
+        }
+    }
+
+    void CommitStaminaCost() {
+
+        if (!player->AsActorValueOwner()) {
+            log::error("Player can't be cast to actor value owner");
+            return;
+        }
+        player->AsActorValueOwner()->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kStamina,
+                                                       -accumulatedStamCost);
+        accumulatedStamCost = 0.0f;
+    }
+
+    // A very heavy function. Scan every few frames, search for dragons, living creatures, firespots
+    void SparseScan(float radius, bool onlyActor) {
+
+        if (hasWings == false) return;
 
         const auto TES = RE::TES::GetSingleton();
-        if (!TES) {
-            log::error("Can't get TES");
+        auto heatSourceFire = GetHeatSourceFire();
+        if (!TES || !heatSourceFire) {
+            log::error("Can't get TES or heatSourceFire");
             return;
         }
         vNearbyLiving.clear();
-        vNearbyFirespots.clear();
+        if (!onlyActor) vNearbyFirespots.clear();
         bool findDragonThisScan = false;
         // Note: verified that the ForEachReferenceInRange is not concurrent
         //log::trace("Starting a scan at frame:{}", iFrameCount); 
@@ -287,25 +324,35 @@ public:
                         }
                     }
                 }
-            } else {
-                // Seems that those static are not object reference
-                //auto baseObj = b_ref.GetBaseObject();
-                //if (baseObj) {
-                //    
-                //    auto name = baseObj->GetObjectTypeName();
-                //    if (auto length = strlen(name); length > 0) {
-                //        char* lowerCaseName = new char[strlen(name) + 1];  // +1 for the null terminator
-                //        for (size_t i = 0; name[i] != '\0'; ++i) {
-                //            lowerCaseName[i] = std::tolower(static_cast<unsigned char>(name[i]));
-                //        }
-                //        lowerCaseName[strlen(name)] = '\0';
-                //        log::debug("Name:{}", lowerCaseName);
-                //        if (strstr(lowerCaseName, "house") || strstr(lowerCaseName, "smithforge") ||
-                //            (strstr(lowerCaseName, "fire") && !strstr(lowerCaseName, "firewood"))) {
-                //            vNearbyFirespots.push_back(&b_ref);
-                //        }
-                //    }
-                //}
+            } else if (onlyActor == false) {
+                // Seems that STAT are not object reference
+                auto baseObj = b_ref.GetBaseObject();
+                if (baseObj) {
+                    if (baseObj->Is(RE::FormType::MovableStatic)) {
+                        
+                        // Should include forms with "Brazier", "fire" but not "firewood". In Static and movable static
+                        if (heatSourceFire->HasForm(baseObj->formID)) {
+                            vNearbyFirespots.push_back(&b_ref);
+                        }
+                         
+                        // Why deprecated: Form names are not loaded into the game unless using po3's tweaks
+                        // auto editorID = baseObj->GetFormEditorID(); 
+                        // auto name = baseObj->GetFormEditorID();
+                        // if (auto length = strlen(name); length > 0) {
+                        //     char* lowerCaseName = new char[strlen(name) + 1];  // +1 for the null terminator
+                        //     for (size_t i = 0; name[i] != '\0'; ++i) {
+                        //         lowerCaseName[i] = std::tolower(static_cast<unsigned char>(name[i]));
+                        //     }
+                        //     lowerCaseName[strlen(name)] = '\0';
+                        //     log::debug("Name:{}", lowerCaseName);
+                        //     if (strstr(lowerCaseName, "house") || strstr(lowerCaseName, "smithforge") ||
+                        //         (strstr(lowerCaseName, "fire") && !strstr(lowerCaseName, "firewood"))) {
+                        //         vNearbyFirespots.push_back(&b_ref);
+                        //     }
+                        // }
+                    }
+
+                }
             }
 
 
@@ -314,7 +361,7 @@ public:
             });
 
         log::trace("Num of vNearbyLiving:{}", vNearbyLiving.size());
-        log::debug("Num of vNearbyFirespots:{}", vNearbyFirespots.size());
+        if (!onlyActor) log::debug("Num of vNearbyFirespots:{}", vNearbyFirespots.size());
         isDragonNearby = findDragonThisScan;
     }
 
@@ -335,7 +382,10 @@ public:
                 auto posOther = actor->GetPosition();
                 auto diff = posOther - pos;
                 log::trace("Distance player and living:{}", diff.Length());
-                if (diff.Length() < range) actor->PlaceObjectAtMe(smSteam, false);
+                if (diff.Length() < range) {
+                    auto randomI = rand() % 100;
+                    vDelaySpawn.push_back(DelaySpawn(iFrameCount + randomI, actor, smSteam));
+                }
             }
         }
 
@@ -344,7 +394,22 @@ public:
                 auto posOther = fireSpot->GetPosition();
                 auto diff = posOther - pos;
                 log::debug("Distance player and firespot:{}", diff.Length());
-                if (diff.Length() < range) fireSpot->PlaceObjectAtMe(lgSteam, false);
+                if (diff.Length() < range) {
+                    auto randomI = rand() % 100;
+                    vDelaySpawn.push_back(DelaySpawn(iFrameCount + randomI, fireSpot, lgSteam));
+                }
+            }
+        }
+    }
+
+    void SpawnCheck() {
+        for (int i = 0; i < vDelaySpawn.size(); i++) {
+            if (iFrameCount > vDelaySpawn[i].shouldSpawnFrame) {
+                vDelaySpawn[i].atWhat->PlaceObjectAtMe(vDelaySpawn[i].spawned, false);
+                auto id = vDelaySpawn[i].spawned->formID;
+                log::debug("vDelaySpawn size:{}. Spawned {:x}", vDelaySpawn.size(), id);
+                vDelaySpawn.erase(vDelaySpawn.begin() + i);
+                break; // only spawn 1 thing per frame
             }
         }
     }
@@ -356,9 +421,27 @@ public:
             auto actorPos = actor->GetPosition();
             auto diffX = actorPos.x - posX;
             auto diffY = actorPos.y - posY;
-            if (diffX * diffX + diffY * diffY < 160000.0f) { // about 5.6 meters
+            int conf_radius = GetMyIntConf(lSpiritualLiftRadius);
+            if (diffX * diffX + diffY * diffY < conf_radius * conf_radius) {  // about 5.6 meters
                 log::trace("Find actor at foot");
                 return actor;
+            }
+        }
+
+        return nullptr;
+    }
+
+    RE::TESObjectREFR* FindFirespotAtFoot() {
+        auto posX = player->GetPositionX();
+        auto posY = player->GetPositionY();
+        int conf_radius = GetMyIntConf(lFireLiftRadius);
+        for (RE::TESObjectREFR* fire : vNearbyFirespots) {
+            auto firePos = fire->GetPosition();
+            auto diffX = firePos.x - posX;
+            auto diffY = firePos.y - posY;
+            if (diffX * diffX + diffY * diffY < conf_radius * conf_radius) {  // about 7 meters
+                log::trace("Find fire at foot");
+                return fire;
             }
         }
 
@@ -449,10 +532,10 @@ public:
 
             if (diff > 0.02f) {
                 lastSuddenTurnFrame = iFrameCount;
-                if (iFrameCount - lastNotification > 240) {
+                /*if (iFrameCount - lastNotification > 240) {
                     lastNotification = iFrameCount;
                     log::trace("Player is turning");
-                }
+                }*/
             }
 
             lastAngle = currentAngle;
@@ -482,7 +565,7 @@ public:
 
     float UpdateWingDir(RE::NiPoint3 leftPos, RE::NiPoint3 rightPos) {
         auto& playerSt = PlayerState::GetSingleton();
-        float conf_shoulderHeight = 100.0f;
+        float conf_shoulderHeight = GetMyConf(fShoulderHeight) / 1.4;
 
         RE::NiPoint3 middlePos = RE::NiPoint3(0.0f, 0.0f, conf_shoulderHeight);
         log::trace("left hand pos: {}, {}, {}", leftPos.x, leftPos.y, leftPos.z);

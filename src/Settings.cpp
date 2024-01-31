@@ -4,7 +4,7 @@ using namespace SKSE;
 using namespace SKSE::log;
 
 // Global
-bool bEnableWholeMod = true;
+//bool bEnableWholeMod = true;
 bool bShowEmitSpellDirection = false;
 int64_t iFrameCount = 0;
 int64_t iLastPressGrip = 0;
@@ -50,12 +50,12 @@ void Settings::Load() {
 void Settings::Main::Load(CSimpleIniA& a_ini) { 
     static const char* section = "==========Main==========";
 
-    detail::get_value(
-        a_ini, bEnableWholeMod, section, "EnableWholeMod",
-        ";;;;;;;;;;;;;;;;;;;;;;;;\n; While playing the game, you can DYNAMICALLY CHANGE SETTINGS below. Steps:\n"
-        ";(1) Edit settings; (2) Save and close this file; (3) When not in combat, open Skyrim console by \"`\"\n"
-        ";(4) Close the console, no need to type anything; (5) Now settings are updated.\n;;;;;;;;;;;;;;;;;;;;;;;;\n;\n;\n"
-        "; Set this to false if you want to completely disable this mod. Default:\"true\".");
+    //detail::get_value(
+    //    a_ini, bEnableWholeMod, section, "EnableWholeMod",
+    //    ";;;;;;;;;;;;;;;;;;;;;;;;\n; While playing the game, you can DYNAMICALLY CHANGE SETTINGS below. Steps:\n"
+    //    ";(1) Edit settings; (2) Save and close this file; (3) When not in combat, open Skyrim console by \"`\"\n"
+    //    ";(4) Close the console, no need to type anything; (5) Now settings are updated.\n;;;;;;;;;;;;;;;;;;;;;;;;\n;\n;\n"
+    //    "; Set this to false if you want to completely disable this mod. Default:\"true\".");
 
     
 }
@@ -144,4 +144,67 @@ spdlog::level::level_enum TraceLevel(int level) {
             return spdlog::level::err;
     }
     return spdlog::level::info;
+}
+
+uint32_t GetBaseFormID_Settings(uint32_t formId) { return formId & 0x00FFFFFF; }
+
+uint32_t GetFullFormID_Settings(const uint8_t modIndex, uint32_t formLower) { return (modIndex << 24) | formLower; }
+
+uint32_t GetFullFormID_ESL_Settings(const uint8_t modIndex, const uint16_t esl_index, uint32_t formLower) {
+    return (modIndex << 24) | (esl_index << 12) | formLower;
+}
+
+
+RE::TESForm* GetMyForm_Settings(RE::FormID partFormID) {
+    RE::TESForm* g;
+
+    // First, try to find the spell using normal ESP
+    auto handler = RE::TESDataHandler::GetSingleton();
+    if (!handler) {
+        log::error("GetMyForm: failed to get TESDataHandler");
+        return nullptr;
+    }
+    auto espIndex = handler->GetLoadedModIndex("VRFly.esp");
+    if (!espIndex.has_value()) {
+        log::trace("GetMyForm: failed to get VRFly.esp");
+    } else {
+        RE::FormID fullFormID = GetFullFormID_Settings(espIndex.value(), partFormID);
+        g = RE::TESForm::LookupByID(fullFormID);
+        if (g) return g;
+    }
+
+    // Second, try to find the spell using ESL
+    // TODO: is this really OK?
+    for (uint16_t i = 0; i <= 0xFFF; i++) {
+        RE::FormID fullFormID = GetFullFormID_ESL_Settings(0xFE, i, partFormID);
+        g = RE::TESForm::LookupByID(fullFormID);
+        if (g) return g;
+    }
+
+    log::error("GetMyForm: failed to get the form {:x}", partFormID);
+    return nullptr;
+}
+
+float GetMyConf(RE::FormID partFormID) {
+    RE::TESGlobal* g = static_cast<RE::TESGlobal*>(GetMyForm_Settings(partFormID));
+    if (!g) {
+        log::error("GetMyConf: Failed to find TESGlobal {:x}", partFormID);
+        return 0.0f;
+    }
+
+    return g->value;
+}
+
+
+bool GetMyBoolConf(RE::FormID partFormID) {
+    float x = GetMyConf(partFormID);
+    int round = std::round(x);
+    return round == 1;
+}
+
+
+int GetMyIntConf(RE::FormID partFormID) {
+    float x = GetMyConf(partFormID);
+    int round = std::round(x);
+    return round;
 }

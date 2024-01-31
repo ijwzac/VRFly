@@ -12,24 +12,27 @@ void VeloEffectMain(Velo& vel) {
         return;
     }
 
-    auto random = rand();
-    if (iFrameCount % 150 == 0 ) {
-        log::trace("About to check gen wind. Velo: {}", vel.Length());
+    log::trace("About to check gen wind. Velo: {}", vel.Length());
+    if (iFrameCount % GetMyIntConf(lWindInterval) == 0) {
+        if (vel.Length() > GetMyConf(fWindSmThres) && vel.Length() < GetMyConf(fWindLgThres)) {
+            // We stop using smallwind
+            WindObj::WindType type = WindObj::mid;
+            RE::NiPointer<RE::TESObjectREFR> newWind = playerSt.player->PlaceObjectAtMe(midWind, false);
+            auto windObj = WindObj(newWind, type, iFrameCount);
+            WindManager::GetSingleton().Push(windObj);
+        }
+    }
+
+    if (iFrameCount % GetMyIntConf(lWindIntervalLg) == 0) {
         RE::NiPointer<RE::TESObjectREFR> newWind;
         WindObj::WindType type;
-        if (vel.Length() > 27.0f) {  //  
+        if (vel.Length() > GetMyConf(fWindExThres)) { 
             type = WindObj::ex;
             newWind = playerSt.player->PlaceObjectAtMe(exWind, false);
-        } else if (vel.Length() > 20.0f) {
-            if (iFrameCount % 300 == 0) {
-                type = WindObj::lg;
-                newWind = playerSt.player->PlaceObjectAtMe(lgWind, false);
-            }
-        } else if (vel.Length() > 5.0f) {
-            // We stop using smallwind
-            type = WindObj::mid;
-            newWind = playerSt.player->PlaceObjectAtMe(midWind, false);
-        }
+        } else if (vel.Length() > GetMyConf(fWindLgThres)) {
+            type = WindObj::lg;
+            newWind = playerSt.player->PlaceObjectAtMe(lgWind, false);
+        } 
         if (newWind) {
             auto windObj = WindObj(newWind, type, iFrameCount);
             WindManager::GetSingleton().Push(windObj);
@@ -52,10 +55,11 @@ void VeloEffectMain(Velo& vel) {
         for (auto recentVel : playerSt.recentVelo) {
             if (highestVel < recentVel) highestVel = recentVel;
         }
-        float conf_StrongKnockThres(27.0f), conf_MediumKnockThres(17.0f), conf_WeakKnockThres(10.0f);
+        float conf_StrongKnockThres(GetMyConf(fShockLgThres)), conf_MediumKnockThres(GetMyConf(fShockMidThres)),
+            conf_WeakKnockThres(GetMyConf(fShockSmThres));
 
         log::trace("About to check gen knock. highestVel: {}", highestVel);
-        if (highestVel > conf_WeakKnockThres) {
+        if (highestVel > conf_WeakKnockThres && GetMyBoolConf(bEnableShockwave)) {
             if (highestVel > conf_StrongKnockThres) {
                 log::trace("Creating large landing explosion");
                 playerSt.player->PlaceObjectAtMe(lgExplo, false);
@@ -66,11 +70,13 @@ void VeloEffectMain(Velo& vel) {
                 WindManager::GetSingleton().frameLastRockExplo = iFrameCount;
 
                 // If player is sneaking or hands position low, play slow motion effect. Superhero landing!
-                auto leftPos = GetPlayerHandPos(true, playerSt.player);
-                auto rightPos = GetPlayerHandPos(false, playerSt.player);
-                if (playerSt.player->IsSneaking() || leftPos.z < 80.0f || rightPos.z < 80.0f) {
-                    playerSt.frameShouldSlowTime = iFrameCount + 10;
+                if (GetMyBoolConf(bEnableShockwaveSlowMotion)) {
+                    auto hmdPos = GetPlayerHmdPos(playerSt.player);
+                    if (playerSt.player->IsSneaking() || hmdPos.z < 80.0f) {  // TODO: is hmdpos really working?
+                        playerSt.frameShouldSlowTime = iFrameCount + 10;
+                    }
                 }
+                
             } else if (highestVel > conf_MediumKnockThres) {
                 log::trace("Creating medium landing explosion");
                 playerSt.player->PlaceObjectAtMe(midExplo, false);
@@ -89,3 +95,4 @@ void VeloEffectMain(Velo& vel) {
         }
     }
 }
+

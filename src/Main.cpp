@@ -107,10 +107,10 @@ SKSEPluginLoad(const LoadInterface* skse) {
     spdlog::level::level_enum level = TraceLevel(iTraceLevel);
     spdlog::default_logger()->set_level(level);
 
-    if (bEnableWholeMod == false) {
-        log::info("{} is disabled.", plugin->GetName());
-        return true;
-    }
+    //if (bEnableWholeMod == false) {
+    //    log::info("{} is disabled.", plugin->GetName());
+    //    return true;
+    //}
 
     log::info("Init data struct");
 

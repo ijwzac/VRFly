@@ -1,7 +1,7 @@
 #pragma once
 
 // Whole mod
-extern bool bEnableWholeMod;
+//extern bool bEnableWholeMod;
 
 // Global
 extern int64_t iFrameCount;
@@ -183,3 +183,79 @@ enum class FConf {
     MaxVeloZ,
     MaxVeloLength,
 };
+
+uint32_t GetBaseFormID_Settings(uint32_t formId);
+
+uint32_t GetFullFormID_Settings(const uint8_t modIndex, uint32_t formLower);
+
+uint32_t GetFullFormID_ESL_Settings(const uint8_t modIndex, const uint16_t esl_index, uint32_t formLower);
+
+RE::TESForm* GetMyForm_Settings(RE::FormID partFormID);
+
+
+// Settings read from Global in game
+// Main
+const RE::FormID bEnableWholeMod = 0x36DCC;
+
+
+// Speed and force of wings
+const RE::FormID fMaxSpeed = 0x2B27E;
+const RE::FormID fMaxSpeedZ = 0x2B27F;
+const RE::FormID fMaxLiftXY = 0x2B280;
+const RE::FormID fMaxLiftZ = 0x33F00;
+const RE::FormID fLiftMaintainer = 0x33F01;
+const RE::FormID fMaxDrag = 0x2B281;
+const RE::FormID fMaxHelper = 0x2B282;
+const RE::FormID fMultiSpeed = 0x2B285;
+const RE::FormID fMultiLiftXY = 0x2B286;
+const RE::FormID fMultiLiftZ = 0x3CB63;
+const RE::FormID fLiftQuadCoef = 0x3CB64;
+const RE::FormID fLiftLinearCoef = 0x3CB65;
+const RE::FormID fMultiDrag = 0x2B287;
+const RE::FormID fMultiHelper = 0x2B288;
+const RE::FormID fGravity = 0x2B289;
+
+// Wings flap
+const RE::FormID fFlapStrength = 0x2B290;
+const RE::FormID fFlapStaminaCost = 0x39C95;
+const RE::FormID fMultiFlapStaminaCost = 0x39C96;
+const RE::FormID fFlapStaminaReduceTime = 0x39C97;
+const RE::FormID fFlapThres = 0x3CB67;
+
+// Wings effects
+const RE::FormID fShockSmThres = 0x2B29C;
+const RE::FormID fShockMidThres = 0x2B29D;
+const RE::FormID fShockLgThres = 0x2B29E;
+const RE::FormID fWindSmThres = 0x2B298;
+const RE::FormID fWindLgThres = 0x2B299;
+const RE::FormID fWindExThres = 0x2B29A;
+const RE::FormID lWindInterval = 0x2B29B;
+const RE::FormID lWindIntervalLg = 0x2B2A1;
+
+// Wings perks
+const RE::FormID bEnableShockwave = 0x2B29F;
+const RE::FormID bEnableShockwaveSlowMotion = 0x2B29A0;
+const RE::FormID bEnableSkydiving = 0x2B284;
+const RE::FormID fSpiritualLiftStrength = 0x2B292;
+const RE::FormID fFireLiftStrength = 0x2B293;
+const RE::FormID lSpiritualLiftRadius = 0x2B296;
+const RE::FormID lFireLiftRadius = 0x2B297;
+
+// Spell Velo
+const RE::FormID fSPVeloGravity = 0x2B291;
+const RE::FormID fSPVeloIdleLifetime = 0x2B294;
+const RE::FormID fSPVeloLength = 0x2B28D;
+const RE::FormID fSPVeloMaxZ = 0x2B28E;
+const RE::FormID fSPVeloSmoothTime = 0x2B28F;
+const RE::FormID fSPForceIdleLifetime = 0x2B295;
+const RE::FormID fSPForceMaxXY = 0x2B28C;
+const RE::FormID fSPForceStrength = 0x2B28A;
+const RE::FormID fSPForceStrengthSecondHand = 0x2B28B;
+
+// Other
+const RE::FormID fShoulderHeight = 0x2B283;
+const RE::FormID bEnableNotification = 0x33F02;
+
+float GetMyConf(RE::FormID partFormID);
+bool GetMyBoolConf(RE::FormID partFormID);
+int GetMyIntConf(RE::FormID partFormID);
